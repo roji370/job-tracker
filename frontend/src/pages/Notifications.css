@@ -1,0 +1,109 @@
+.notif-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.notif-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.25);
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin-bottom: 1.5rem;
+}
+
+.notif-info strong {
+    color: var(--color-text);
+}
+
+.notif-table-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.notif-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.notif-table thead {
+    background: var(--color-surface-2);
+}
+
+.notif-table th {
+    padding: 0.8rem 1rem;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.notif-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    vertical-align: middle;
+}
+
+.notif-table tr:last-child td {
+    border-bottom: none;
+}
+
+.notif-table tr:hover td {
+    background: var(--color-surface-2);
+}
+
+.channel-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    color: var(--color-text);
+    text-transform: capitalize;
+}
+
+.notif-recipient {
+    font-size: 0.78rem;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notif-subject {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notif-error {
+    color: var(--color-error);
+    font-size: 0.75rem;
+    max-width: 180px;
+}
+
+.notif-time {
+    font-size: 0.75rem;
+    white-space: nowrap;
+    color: var(--color-text-subtle);
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 3rem;
+    text-align: center;
+    color: var(--color-text-muted);
+}

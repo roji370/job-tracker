@@ -1,0 +1,129 @@
+.upload-zone {
+    border: 2px dashed var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 2.5rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all var(--transition);
+    background: var(--color-surface-2);
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.upload-zone:hover {
+    border-color: var(--color-primary);
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.upload-zone.drag-active {
+    border-color: var(--color-primary);
+    background: rgba(99, 102, 241, 0.1);
+    box-shadow: 0 0 30px rgba(99, 102, 241, 0.2);
+}
+
+.upload-zone.uploading {
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
+.upload-idle,
+.upload-file-chosen,
+.upload-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+}
+
+.upload-icon-wrap {
+    width: 64px;
+    height: 64px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+    border-radius: var(--radius-xl);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-primary-light);
+    margin-bottom: 0.5rem;
+    transition: transform var(--transition);
+}
+
+.upload-icon-wrap.bouncing {
+    animation: bounce 0.6s ease infinite alternate;
+}
+
+@keyframes bounce {
+    from {
+        transform: translateY(0);
+    }
+
+    to {
+        transform: translateY(-8px);
+    }
+}
+
+.upload-main-text {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.upload-sub-text {
+    font-size: 0.825rem;
+    color: var(--color-text-muted);
+}
+
+.upload-browse {
+    color: var(--color-primary-light);
+    font-weight: 600;
+}
+
+.upload-icon-file {
+    color: var(--color-primary-light);
+}
+
+.upload-filename {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.upload-filesize {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.upload-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(99, 102, 241, 0.2);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 0.5rem;
+}
+
+.upload-progress-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.upload-progress-bar {
+    width: 100%;
+    max-width: 260px;
+    height: 6px;
+    background: var(--color-surface-3);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.upload-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+}

@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL Database ─────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: jobtracker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Fix #25: DO NOT expose port 5432 externally.
+    # The backend connects via the internal Docker network.
+    # To connect locally for debugging: docker exec -it jobtracker-postgres psql -U $POSTGRES_USER
+    # ports:
+    #   - "5432:5432"   ← REMOVED for production security
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobtracker
+
+  # ── FastAPI Backend ─────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jobtracker-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - resume_uploads:/app/uploads
+    # Fix #4: Removed fallback defaults from DB vars — they MUST be set in .env
+    # If .env is missing, docker-compose will fail loudly (correct behaviour).
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - jobtracker
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/api/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s # Extended: model download at startup takes time
+
+  # ── React Frontend ──────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "" # Empty = use nginx proxy (recommended for Docker)
+    container_name: jobtracker-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - jobtracker
+
+volumes:
+  postgres_data:
+    driver: local
+  resume_uploads:
+    driver: local
+
+networks:
+  jobtracker:
+    driver: bridge

@@ -1,377 +1,241 @@
 """
-Playwright-based scraper for Amazon Jobs (jobs.amazon.com).
-Runs headless and returns structured job data.
-Fix #8: Fallback jobs are now marked with is_synthetic=True so the DB
-and UI can distinguish real scraped descriptions from generated ones.
+Lightweight job fetcher using public ATS (Applicant Tracking System) APIs.
+
+Replaces Playwright — no headless browser, no scraping.
+All data comes from official public JSON APIs (no auth required).
+
+Supported ATS platforms:
+  - Greenhouse: boards-api.greenhouse.io
+  - Lever:      api.lever.co
+
+Add/remove companies in app/utils/company_sources.py.
 """
-import asyncio
-import logging
 import re
-from typing import Optional
+import logging
+import asyncio
+from html.parser import HTMLParser
+
+import httpx
+
+from app.utils.company_sources import COMPANIES, JOB_TITLE_KEYWORDS
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
-AMAZON_JOBS_URL = (
-    "https://www.amazon.jobs/en/search?offset=0&result_limit=20&sort=relevant"
-    "&category[]=software-development&country[]=USA"
-)
+# Public API base URLs (no auth)
+GREENHOUSE_URL = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
+LEVER_URL      = "https://api.lever.co/v0/postings/{slug}?mode=json"
+
+REQUEST_TIMEOUT = 15  # seconds per company
 
 
-async def scrape_amazon_jobs(
-    query: str = "software engineer",
-    location: str = "USA",
+# ── HTML stripper ─────────────────────────────────────────────────────────────
+
+class _HTMLStripper(HTMLParser):
+    """Minimal HTML → plain text converter."""
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+
+    def handle_data(self, data: str):
+        self._parts.append(data)
+
+    def get_text(self) -> str:
+        return " ".join(self._parts).strip()
+
+
+def _strip_html(html: str) -> str:
+    if not html:
+        return ""
+    stripper = _HTMLStripper()
+    stripper.feed(html)
+    # Collapse whitespace
+    return re.sub(r"\s+", " ", stripper.get_text()).strip()
+
+
+# ── Title filter ──────────────────────────────────────────────────────────────
+
+def _title_matches_filter(title: str) -> bool:
+    """Return True if the job title contains at least one tracked keyword."""
+    if not JOB_TITLE_KEYWORDS:
+        return True  # No filter set — import everything
+    title_lower = title.lower()
+    return any(kw.lower() in title_lower for kw in JOB_TITLE_KEYWORDS)
+
+
+# ── Greenhouse fetcher ────────────────────────────────────────────────────────
+
+async def fetch_greenhouse_jobs(
+    client: httpx.AsyncClient,
+    company_name: str,
+    slug: str,
     limit: int = 20,
 ) -> list[dict]:
-    """
-    Scrape Amazon jobs using Playwright headless browser.
-
-    Returns:
-        List of job dicts. Jobs from the actual site have is_synthetic=False.
-        Fallback jobs (when scraping fails) have is_synthetic=True.
-    """
+    """Fetch jobs from Greenhouse API for a single company."""
+    url = GREENHOUSE_URL.format(slug=slug)
     try:
-        from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-    except ImportError:
-        logger.error("Playwright is not installed.")
-        raise
-
-    jobs = []
-
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            )
-            context = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 720},
-            )
-            page = await context.new_page()
-
-            url = (
-                f"https://www.amazon.jobs/en/search?"
-                f"offset=0&result_limit={limit}&sort=relevant"
-                f"&base_query={query.replace(' ', '+')}"
-                f"&loc_query={location}"
-            )
-
-            logger.info("Scraping Amazon Jobs: %s", url)
-            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-
-            try:
-                await page.wait_for_selector(".job-tile", timeout=15000)
-            except PlaywrightTimeout:
-                logger.warning("Job tiles not found. Page may have changed structure.")
-                await browser.close()
-                return _get_fallback_jobs(query)
-
-            job_tiles = await page.query_selector_all(".job-tile")
-            logger.info("Found %d job tiles", len(job_tiles))
-
-            for tile in job_tiles[:limit]:
-                try:
-                    job = await _extract_job_from_tile(tile, page)
-                    if job:
-                        jobs.append(job)
-                except Exception as e:
-                    logger.warning("Failed to extract job from tile: %s", e)
-                    continue
-
-            await browser.close()
-
-    except PlaywrightTimeout:
-        logger.error("Playwright timed out while scraping. Using fallback data.")
-        return _get_fallback_jobs(query)
+        resp = await client.get(url, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning("Greenhouse: company slug '%s' not found (404)", slug)
+        else:
+            logger.warning("Greenhouse '%s' HTTP %s", slug, e.response.status_code)
+        return []
     except Exception as e:
-        logger.error("Scraping failed: %s. Using fallback data.", e)
-        return _get_fallback_jobs(query)
+        logger.warning("Greenhouse '%s' error: %s", slug, e)
+        return []
 
-    if not jobs:
-        logger.warning("No jobs scraped. Returning fallback dataset.")
-        return _get_fallback_jobs(query)
+    jobs = data.get("jobs", [])
+    results = []
 
-    return jobs
+    for job in jobs:
+        title = job.get("title", "").strip()
+        if not title or not _title_matches_filter(title):
+            continue
 
+        description = _strip_html(job.get("content", ""))
+        location_obj = job.get("location") or {}
+        location = (location_obj.get("name") or "Remote").strip()
+        posted = (job.get("updated_at") or "")[:10]
 
-async def _extract_job_from_tile(tile, page) -> Optional[dict]:
-    """Extract structured data from a single Amazon job tile."""
-    try:
-        title_el = await tile.query_selector("h3.job-title a, .job-title a")
-        title = await title_el.inner_text() if title_el else "Unknown Position"
-        title = title.strip()
-
-        href = await title_el.get_attribute("href") if title_el else None
-        url = f"https://www.amazon.jobs{href}" if href else None
-
-        job_id = None
-        if url:
-            match = re.search(r"/jobs/(\d+)", url)
-            job_id = match.group(1) if match else None
-
-        location_el = await tile.query_selector(".location-and-id .location")
-        location = await location_el.inner_text() if location_el else "Remote"
-        location = location.strip()
-
-        posted_el = await tile.query_selector(".updated-time")
-        posted_date = await posted_el.inner_text() if posted_el else ""
-        posted_date = posted_date.strip()
-
-        category_el = await tile.query_selector(".job-category")
-        category = await category_el.inner_text() if category_el else ""
-
-        description = _generate_description(title, category)
-
-        return {
+        results.append({
             "title": title,
-            "company": "Amazon",
+            "company": company_name,
             "location": location,
             "description": description,
-            "requirements": _generate_requirements(title),
-            "url": url,
-            "source": "amazon",
-            "job_id_external": job_id,
+            "requirements": "",       # Greenhouse merges req into content
+            "url": job.get("absolute_url", ""),
+            "source": f"greenhouse:{slug}",
+            "job_id_external": f"gh_{job.get('id', '')}",
             "employment_type": "Full-time",
-            "posted_date": posted_date,
-            # Fix #8: Real scraped jobs — description is generated but job metadata is real
-            # Mark as synthetic since we can't scrape rich description from the tile alone
-            "is_synthetic": True,
-        }
+            "posted_date": posted,
+            "is_synthetic": False,    # Real job from official API
+        })
+
+        if len(results) >= limit:
+            break
+
+    logger.info("Greenhouse '%s': fetched %d jobs", slug, len(results))
+    return results
+
+
+# ── Lever fetcher ─────────────────────────────────────────────────────────────
+
+async def fetch_lever_jobs(
+    client: httpx.AsyncClient,
+    company_name: str,
+    slug: str,
+    limit: int = 20,
+) -> list[dict]:
+    """Fetch jobs from Lever API for a single company."""
+    url = LEVER_URL.format(slug=slug)
+    try:
+        resp = await client.get(url, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        postings = resp.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning("Lever: company slug '%s' not found (404)", slug)
+        else:
+            logger.warning("Lever '%s' HTTP %s", slug, e.response.status_code)
+        return []
     except Exception as e:
-        logger.warning("Error parsing job tile: %s", e)
-        return None
+        logger.warning("Lever '%s' error: %s", slug, e)
+        return []
+
+    results = []
+
+    for posting in postings:
+        title = posting.get("text", "").strip()
+        if not title or not _title_matches_filter(title):
+            continue
+
+        categories = posting.get("categories") or {}
+        location = (categories.get("location") or "Remote").strip()
+        description = _strip_html(posting.get("descriptionPlain") or posting.get("description", ""))
+
+        # Lever lists requirements separately
+        lists = posting.get("lists") or []
+        req_text = ""
+        for section in lists:
+            label = section.get("text", "").lower()
+            if "requirement" in label or "qualif" in label:
+                req_text = _strip_html(section.get("content", ""))
+                break
+
+        results.append({
+            "title": title,
+            "company": company_name,
+            "location": location,
+            "description": description,
+            "requirements": req_text,
+            "url": posting.get("hostedUrl", ""),
+            "source": f"lever:{slug}",
+            "job_id_external": f"lv_{posting.get('id', '')}",
+            "employment_type": "Full-time",
+            "posted_date": "",
+            "is_synthetic": False,    # Real job from official API
+        })
+
+        if len(results) >= limit:
+            break
+
+    logger.info("Lever '%s': fetched %d jobs", slug, len(results))
+    return results
 
 
-def _generate_description(title: str, category: str = "") -> str:
-    """Generate a basic description based on job title."""
-    base = (
-        f"We are looking for a talented {title} to join our team at Amazon. "
-        f"You will work on cutting-edge technology at scale, solving complex problems "
-        f"that impact millions of customers worldwide. "
-    )
-    if category:
-        base += f"This role falls under {category}. "
-    base += (
-        "You'll collaborate with cross-functional teams, drive innovation, "
-        "and contribute to Amazon's mission of being the Earth's most customer-centric company."
-    )
-    return base
+# ── Main entry point ──────────────────────────────────────────────────────────
 
-
-def _generate_requirements(title: str) -> str:
-    """Generate requirements string based on job title."""
-    title_lower = title.lower()
-    if "data" in title_lower or "ml" in title_lower or "machine learning" in title_lower:
-        return (
-            "BS/MS in Computer Science or related field. "
-            "3+ years experience in data engineering or machine learning. "
-            "Proficiency in Python, SQL, Spark. Experience with AWS services. "
-            "Strong understanding of ML algorithms and model deployment."
-        )
-    elif "frontend" in title_lower or "ui" in title_lower or "react" in title_lower:
-        return (
-            "BS in Computer Science or equivalent. "
-            "3+ years of experience with React/TypeScript. "
-            "Strong CSS and web performance skills. "
-            "Experience with testing frameworks."
-        )
-    elif "devops" in title_lower or "sre" in title_lower or "platform" in title_lower:
-        return (
-            "BS in Computer Science or related field. "
-            "3+ years in DevOps or SRE roles. "
-            "Experience with Kubernetes, Terraform, CI/CD pipelines. "
-            "Strong scripting skills (Python, Bash)."
-        )
-    else:
-        return (
-            "BS/MS in Computer Science or related field. "
-            "3+ years of software development experience. "
-            "Proficiency in one or more programming languages (Java, Python, C++). "
-            "Strong problem-solving skills and customer obsession."
-        )
-
-
-def _get_fallback_jobs(query: str = "software engineer") -> list[dict]:
+async def scrape_all_companies(limit_per_company: int = 20) -> list[dict]:
     """
-    Return realistic fallback job data when scraping fails.
-    Fix #8: All fallback jobs are marked is_synthetic=True.
+    Fetch jobs from all companies in company_sources.COMPANIES.
+
+    Makes all requests concurrently (one per company) for speed.
+    Returns a flat list of job dicts across all companies.
     """
-    return [
-        {
-            "title": "Software Development Engineer II",
-            "company": "Amazon",
-            "location": "Seattle, WA",
-            "description": (
-                "Join Amazon's core platform team to design and build highly scalable "
-                "distributed systems that power Amazon's retail infrastructure. You'll "
-                "work on low-latency, high-availability services serving millions of TPS."
-            ),
-            "requirements": (
-                "BS/MS in CS. 4+ years software development experience. "
-                "Deep expertise in Java or C++. Experience with distributed systems, "
-                "microservices architecture, and AWS cloud services."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345678/sde-ii",
-            "source": "amazon",
-            "job_id_external": "2345678",
-            "employment_type": "Full-time",
-            "posted_date": "2 days ago",
-            "is_synthetic": True,
-        },
-        {
-            "title": "Senior Data Engineer",
-            "company": "Amazon",
-            "location": "New York, NY",
-            "description": (
-                "Build and optimize data pipelines that process petabytes of customer "
-                "behavior data. You'll design ETL workflows, work with Redshift, Glue, "
-                "and contribute to Amazon's data lake infrastructure."
-            ),
-            "requirements": (
-                "BS in CS or Data Engineering. 5+ years data engineering experience. "
-                "Proficient in Python, Spark, SQL. Expertise with AWS Glue, Redshift, S3. "
-                "Experience with streaming data using Kafka or Kinesis."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345679/senior-data-engineer",
-            "source": "amazon",
-            "job_id_external": "2345679",
-            "employment_type": "Full-time",
-            "posted_date": "1 day ago",
-            "is_synthetic": True,
-        },
-        {
-            "title": "Machine Learning Engineer",
-            "company": "Amazon",
-            "location": "Palo Alto, CA",
-            "description": (
-                "Design and deploy production ML models for Amazon's recommendation "
-                "engine. Work with massive datasets, build feature pipelines, and use "
-                "SageMaker to train and serve models at scale."
-            ),
-            "requirements": (
-                "MS/PhD in ML or CS. 3+ years ML engineering experience. "
-                "Strong Python, TensorFlow/PyTorch skills. "
-                "Experience with model deployment and MLOps practices."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345680/ml-engineer",
-            "source": "amazon",
-            "job_id_external": "2345680",
-            "employment_type": "Full-time",
-            "posted_date": "3 days ago",
-            "is_synthetic": True,
-        },
-        {
-            "title": "Frontend Engineer – React",
-            "company": "Amazon",
-            "location": "Remote",
-            "description": (
-                "Build beautiful, fast, and accessible customer-facing UI experiences "
-                "using React and TypeScript. Work on A/B experiments that affect "
-                "millions of Amazon customers globally."
-            ),
-            "requirements": (
-                "BS in CS or equivalent. 3+ years React experience. "
-                "TypeScript proficiency. Performance optimization skills. "
-                "Experience with design systems and accessibility (WCAG)."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345681/frontend-engineer",
-            "source": "amazon",
-            "job_id_external": "2345681",
-            "employment_type": "Full-time",
-            "posted_date": "4 days ago",
-            "is_synthetic": True,
-        },
-        {
-            "title": "DevOps / Platform Engineer",
-            "company": "Amazon",
-            "location": "Austin, TX",
-            "description": (
-                "Build and maintain mission-critical CI/CD infrastructure and Kubernetes "
-                "clusters. Improve developer experience, deployment velocity, and "
-                "system reliability across Amazon's engineering organization."
-            ),
-            "requirements": (
-                "BS in CS or equivalent. 4+ years DevOps experience. "
-                "Kubernetes, Terraform, Jenkins expertise. "
-                "Strong scripting skills in Python and Bash. "
-                "Experience with observability tools (Prometheus, Grafana, Datadog)."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345682/devops-platform-engineer",
-            "source": "amazon",
-            "job_id_external": "2345682",
-            "employment_type": "Full-time",
-            "posted_date": "5 days ago",
-            "is_synthetic": True,
-        },
-        {
-            "title": "Backend Engineer – Python/FastAPI",
-            "company": "Amazon",
-            "location": "Vancouver, BC",
-            "description": (
-                "Develop high-performance REST APIs and microservices using Python and "
-                "FastAPI. Design PostgreSQL schemas, integrate with AWS services, and "
-                "ensure API reliability and scalability."
-            ),
-            "requirements": (
-                "BS in CS. 3+ years Python backend development. "
-                "FastAPI or Django REST Framework experience. "
-                "PostgreSQL, Redis proficiency. Docker and AWS experience."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345683/backend-engineer-python",
-            "source": "amazon",
-            "job_id_external": "2345683",
-            "employment_type": "Full-time",
-            "posted_date": "1 week ago",
-            "is_synthetic": True,
-        },
-        {
-            "title": "Cloud Solutions Architect",
-            "company": "Amazon Web Services",
-            "location": "Chicago, IL",
-            "description": (
-                "Work directly with enterprise customers to architect, design, and build "
-                "cloud solutions on AWS. Lead technical workshops, create reference "
-                "architectures, and drive customer success."
-            ),
-            "requirements": (
-                "BS in CS or Engineering. 6+ years cloud architecture experience. "
-                "AWS Solutions Architect Professional certification preferred. "
-                "Strong communication and presentation skills."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345684/cloud-architect",
-            "source": "amazon",
-            "job_id_external": "2345684",
-            "employment_type": "Full-time",
-            "posted_date": "2 days ago",
-            "is_synthetic": True,
-        },
-        {
-            "title": "Security Engineer",
-            "company": "Amazon",
-            "location": "Washington, D.C.",
-            "description": (
-                "Protect Amazon's infrastructure by identifying and mitigating security "
-                "vulnerabilities. Conduct penetration testing, security reviews, and "
-                "build automated security tooling."
-            ),
-            "requirements": (
-                "BS in CS or Security. 4+ years application security experience. "
-                "CISSP or CEH certification preferred. "
-                "Proficiency in vulnerability assessment, SAST/DAST tools."
-            ),
-            "url": "https://www.amazon.jobs/en/jobs/2345685/security-engineer",
-            "source": "amazon",
-            "job_id_external": "2345685",
-            "employment_type": "Full-time",
-            "posted_date": "3 days ago",
-            "is_synthetic": True,
-        },
-    ]
+    all_jobs: list[dict] = []
+
+    async with httpx.AsyncClient(
+        headers={"User-Agent": "JobTracker/1.0 (legitimate job aggregator)"},
+        follow_redirects=True,
+    ) as client:
+        tasks = []
+        for company in COMPANIES:
+            name = company["name"]
+            ats  = company["ats"].lower()
+            slug = company["slug"]
+
+            if ats == "greenhouse":
+                tasks.append(fetch_greenhouse_jobs(client, name, slug, limit_per_company))
+            elif ats == "lever":
+                tasks.append(fetch_lever_jobs(client, name, slug, limit_per_company))
+            else:
+                logger.warning("Unknown ATS type '%s' for company '%s'", ats, name)
+
+        # Fetch all companies concurrently, gather results
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for company, result in zip(COMPANIES, results):
+            if isinstance(result, Exception):
+                logger.error("Failed to fetch '%s': %s", company["name"], result)
+            elif isinstance(result, list):
+                all_jobs.extend(result)
+
+    logger.info(
+        "Total jobs fetched: %d from %d companies",
+        len(all_jobs),
+        len(COMPANIES),
+    )
+    return all_jobs
+
+
+# ── Backwards-compatible alias (used by services/pipeline.py) ─────────────────
+async def scrape_amazon_jobs(query: str = "", limit: int = 20) -> list[dict]:
+    """
+    Legacy alias kept so pipeline.py doesn't need changes.
+    Ignores `query` and `limit` — use company_sources.py to configure.
+    """
+    return await scrape_all_companies(limit_per_company=settings.JOB_FETCH_LIMIT)

@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     # ── Matching ──────────────────────────────────────────────────────────────
     MATCH_THRESHOLD: float = 70.0
 
+    # ── Job fetching ──────────────────────────────────────────────────────────
+    # Max jobs fetched per company per pipeline run (keeps memory low on free tier)
+    JOB_FETCH_LIMIT: int = 20
+    # Comma-separated title keywords to override company_sources.JOB_TITLE_KEYWORDS
+    # Leave empty to use the defaults defined in company_sources.py
+    JOB_TITLE_FILTER: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

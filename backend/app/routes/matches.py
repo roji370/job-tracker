@@ -9,14 +9,14 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.match import JobMatch
 from app.models.job import Job
 from app.models.resume import Resume
-from app.schemas import MatchOut, MatchToggleOut, MatchStatsOut, JobInMatchOut
+from app.schemas import MatchOut, MatchToggleOut, MatchStatsOut, JobInMatchOut, MatchPaginatedOut
 from app.utils.company_normalizer import is_top_company, normalize_company
 
 logger = logging.getLogger(__name__)
@@ -53,9 +53,10 @@ async def match_stats(db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("/", response_model=List[MatchOut])
+@router.get("/", response_model=MatchPaginatedOut)
 async def list_matches(
     resume_id: Optional[uuid.UUID] = Query(None),
+    q: Optional[str] = Query(None, description="Search by title or company"),
     min_score: float = Query(0.0, ge=0, le=100),
     saved_only: bool = Query(False),
     applied_only: bool = Query(False),
@@ -74,16 +75,21 @@ async def list_matches(
     """
     List all job matches. Optionally filter by resume, score threshold,
     saved/applied status, experience level, and location.
-    Includes full job details.
+    Includes full job details and total count for pagination.
     """
-    stmt = (
-        select(JobMatch)
-        .options(selectinload(JobMatch.job), selectinload(JobMatch.resume))
-        .join(Job, JobMatch.job_id == Job.id)
-        .where(JobMatch.match_score >= min_score)
-    )
+    # Build filter conditions
+    filters = [JobMatch.match_score >= min_score]
+    
+    if q:
+        filters.append(
+            or_(
+                Job.title.ilike(f"%{q}%"),
+                Job.company.ilike(f"%{q}%")
+            )
+        )
+    
     if resume_id:
-        stmt = stmt.where(JobMatch.resume_id == resume_id)
+        filters.append(JobMatch.resume_id == resume_id)
     else:
         # Default: active resume
         active = await db.execute(
@@ -91,22 +97,42 @@ async def list_matches(
         )
         active_resume = active.scalar_one_or_none()
         if active_resume:
-            stmt = stmt.where(JobMatch.resume_id == active_resume.id)
+            filters.append(JobMatch.resume_id == active_resume.id)
 
     if saved_only:
-        stmt = stmt.where(JobMatch.is_saved == True)
+        filters.append(JobMatch.is_saved == True)
     if applied_only:
-        stmt = stmt.where(JobMatch.is_applied == True)
+        filters.append(JobMatch.is_applied == True)
     if experience_level:
-        stmt = stmt.where(Job.experience_level == experience_level.lower())
+        filters.append(Job.experience_level == experience_level.lower())
     if location:
-        stmt = stmt.where(Job.location.ilike(f"%{location}%"))
+        filters.append(Job.location.ilike(f"%{location}%"))
+
+    # Count query
+    count_stmt = select(func.count(JobMatch.id)).join(Job, JobMatch.job_id == Job.id)
+    for f in filters:
+        count_stmt = count_stmt.where(f)
+        
+    count_result = await db.execute(count_stmt)
+    total_matches = count_result.scalar_one()
+
+    # Data query
+    stmt = (
+        select(JobMatch)
+        .options(selectinload(JobMatch.job), selectinload(JobMatch.resume))
+        .join(Job, JobMatch.job_id == Job.id)
+    )
+    for f in filters:
+        stmt = stmt.where(f)
 
     stmt = stmt.order_by(JobMatch.match_score.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
     matches = result.scalars().all()
 
-    return [_to_match_out(m) for m in matches]
+    return {
+        "items": [_to_match_out(m) for m in matches],
+        "total": total_matches
+    }
 
 
 @router.patch("/{match_id}/save", response_model=MatchToggleOut)

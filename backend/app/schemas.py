@@ -115,6 +115,11 @@ class MatchOut(_OrmBase):
         return v  # pass through as-is; frontend handles both
 
 
+class MatchPaginatedOut(BaseModel):
+    items: list[MatchOut]
+    total: int
+
+
 class MatchToggleOut(_OrmBase):
     id: uuid.UUID
     is_saved: Optional[bool] = None

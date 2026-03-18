@@ -27,6 +27,7 @@ const EXPERIENCE_OPTIONS = [
 
 export default function Matches() {
     const [matches, setMatches] = useState([])
+    const [totalMatches, setTotalMatches] = useState(0)
     const [loading, setLoading] = useState(true)
 
     // Pagination
@@ -47,18 +48,20 @@ export default function Matches() {
     const load = useCallback(async () => {
         setLoading(true)
         try {
-            const params = {}
+            const params = { skip: (currentPage - 1) * pageSize, limit: pageSize }
+            if (search) params.q = search
             if (statusFilter === 'high') params.min_score = 70
             if (statusFilter === 'saved') params.saved_only = true
             if (statusFilter === 'applied') params.applied_only = true
             if (expLevel) params.experience_level = expLevel
             if (locationQuery) params.location = locationQuery
             const res = await listMatches(params)
-            setMatches(res.data)
+            setMatches(res.data.items || [])
+            setTotalMatches(res.data.total || 0)
 
             // Build unique location set for suggestions
             const locs = [...new Set(
-                res.data
+                (res.data.items || [])
                     .map(m => m.job?.location)
                     .filter(Boolean)
                     .map(l => l.trim())
@@ -68,27 +71,16 @@ export default function Matches() {
         } finally {
             setLoading(false)
         }
-    }, [statusFilter, expLevel, locationQuery])
+    }, [statusFilter, expLevel, locationQuery, currentPage, pageSize, search])
 
-    useEffect(() => { load() }, [load])
+    useEffect(() => { load() }, [load, currentPage, pageSize, search])
 
     // Reset pagination when search or filters change
     useEffect(() => {
         setCurrentPage(1)
     }, [search, statusFilter, expLevel, locationQuery])
 
-    // Client-side search (title / company) applied on top of server results
-    const filtered = matches.filter(m => {
-        if (!search) return true
-        const q = search.toLowerCase()
-        return (
-            m.job?.title?.toLowerCase().includes(q) ||
-            m.job?.company?.toLowerCase().includes(q)
-        )
-    })
-
-    const totalPages = Math.ceil(filtered.length / pageSize)
-    const displayed = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    const totalPages = Math.ceil(totalMatches / pageSize)
 
     const hasActiveFilters = statusFilter !== 'all' || expLevel || locationQuery
 
@@ -253,10 +245,9 @@ export default function Matches() {
                 </div>
             )}
 
-            {/* ── Results count ────────────────────────────────────────── */}
             {!loading && (
                 <p className="matches-count">
-                    {filtered.length} match{filtered.length !== 1 ? 'es' : ''}
+                    {totalMatches} match{totalMatches !== 1 ? 'es' : ''}
                     {search && ` for "${search}"`}
                 </p>
             )}
@@ -268,7 +259,7 @@ export default function Matches() {
                         <div key={i} className="skeleton" style={{ height: 160 }} />
                     ))}
                 </div>
-            ) : filtered.length === 0 ? (
+            ) : matches.length === 0 ? (
                 <div className="card empty-state">
                     <Zap size={40} />
                     <p>No matches found. Try running the pipeline or adjusting filters.</p>
@@ -282,7 +273,7 @@ export default function Matches() {
                 <>
                     <AnimatePresence>
                         <div className="section-grid grid-2">
-                            {displayed.map(m => (
+                            {matches.map(m => (
                                 <JobCard key={m.id} match={m} onUpdate={load} />
                             ))}
                         </div>

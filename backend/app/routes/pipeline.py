@@ -140,3 +140,47 @@ async def _run_in_background(company_slugs: list[str] | None = None):
             logger.info("Background pipeline complete: %s", result)
         except Exception as e:
             logger.error("Background pipeline error: %s", e)
+
+
+@router.post("/backfill-experience")
+async def backfill_experience_levels(db: AsyncSession = Depends(get_db)):
+    """
+    One-shot backfill: re-infer experience_level for all jobs that currently
+    have NULL (i.e. jobs scraped before the experience_level column was added).
+
+    Safe to call multiple times — only updates NULL rows.
+    """
+    from sqlalchemy import update, case, text as sa_text
+    from app.models.job import Job as JobModel
+
+    # PostgreSQL word-boundary regex operator ~* (case-insensitive)
+    director_pat = r"\mdirector\m|\mvp\m|\bvice president\b|\bhead of\b|\mprincipal\m"
+    lead_pat     = r"\mlead\m|\mstaff\m|\marchitect\m|\mdistinguished\m"
+    senior_pat   = r"\msenior\m|\bsr\b"
+    entry_pat    = r"\mjunior\m|\bjr\b|\mentry\m|\massociate\m|\mgraduate\m|\mintern\m|\bnew grad\b"
+
+    # SQLAlchemy 2.0 case() syntax: case((cond, val), (cond, val), ..., else_=...)
+    experience_case = case(
+        (JobModel.title.op("~*")(director_pat), "director"),
+        (JobModel.title.op("~*")(lead_pat),     "lead"),
+        (JobModel.title.op("~*")(senior_pat),   "senior"),
+        (JobModel.title.op("~*")(entry_pat),    "entry"),
+        else_="mid",
+    )
+
+    stmt = (
+        update(JobModel)
+        .where(JobModel.experience_level == None)  # noqa: E711
+        .values(experience_level=experience_case)
+        .returning(JobModel.id)
+    )
+    result = await db.execute(stmt)
+    updated_ids = result.fetchall()
+    await db.commit()
+
+    return {
+        "message": f"Backfilled experience_level for {len(updated_ids)} jobs.",
+        "updated_count": len(updated_ids),
+    }
+
+

@@ -79,6 +79,7 @@ export const triggerPipelineAsync = (companySlugs = null) =>
 export const getLastRun = () => api.get('/pipeline/last-run')
 export const getPipelineHistory = () => api.get('/pipeline/history')
 export const listCompanies = () => api.get('/pipeline/companies')
+export const backfillExperienceLevels = () => api.post('/pipeline/backfill-experience')
 
 // ─── Notifications ───────────────────────────────────────────
 export const getNotificationLogs = () => api.get('/notifications/logs')

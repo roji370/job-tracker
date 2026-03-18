@@ -66,12 +66,14 @@ def _title_matches_filter(title: str) -> bool:
 
 # ── Experience level inference ────────────────────────────────────────────────
 
+# Each tuple: (level, list_of_regex_patterns)
 # Ordered from most-specific to least-specific so the first match wins.
+# \b = word boundary — handles keywords at start, end, or middle of title.
 _EXPERIENCE_PATTERNS: list[tuple[str, list[str]]] = [
-    ("director",  ["director", "vp ", "vice president", "head of", "principal"]),
-    ("lead",      ["lead ", "staff ", "architect", "distinguished"]),
-    ("senior",    ["senior", "sr.", "sr ", "experienced"]),
-    ("entry",     ["junior", "jr.", "jr ", "entry", "associate", "graduate", "intern", "new grad"]),
+    ("director",  [r"\bdirector\b", r"\bvp\b", r"\bvice president\b", r"\bhead of\b", r"\bprincipal\b"]),
+    ("lead",      [r"\blead\b", r"\bstaff\b", r"\barchitect\b", r"\bdistinguished\b"]),
+    ("senior",    [r"\bsenior\b", r"\bsr\.\b", r"\bsr\b", r"\bexperienced\b"]),
+    ("entry",     [r"\bjunior\b", r"\bjr\.\b", r"\bjr\b", r"\bentry\b", r"\bassociate\b", r"\bgraduate\b", r"\bintern\b", r"\bnew grad\b"]),
     ("mid",       []),   # Default / catch-all — applied if none of the above match
 ]
 
@@ -80,10 +82,11 @@ def _infer_experience_level(title: str) -> str:
     """
     Infer experience level from a job title string.
     Returns one of: 'entry' | 'mid' | 'senior' | 'lead' | 'director'
+    Uses word-boundary regex so keywords at start/end of title are matched.
     """
     title_lower = title.lower()
-    for level, keywords in _EXPERIENCE_PATTERNS:
-        if any(kw in title_lower for kw in keywords):
+    for level, patterns in _EXPERIENCE_PATTERNS:
+        if any(re.search(pat, title_lower) for pat in patterns):
             return level
     return "mid"  # Default when no signal is present
 

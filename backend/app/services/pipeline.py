@@ -203,13 +203,22 @@ async def _get_active_resume(db: AsyncSession) -> Resume | None:
 
 
 async def _upsert_job(db: AsyncSession, job_data: dict) -> tuple[Job, bool]:
-    """Insert or return existing job by external ID. Returns (job, is_new)."""
+    """Insert or update existing job by external ID. Returns (job, is_new).
+
+    We always refresh mutable fields (experience_level, location, url, etc.)
+    on existing rows so that stale / NULL values from earlier scrapes get fixed.
+    """
     if job_data.get("job_id_external"):
         result = await db.execute(
             select(Job).where(Job.job_id_external == job_data["job_id_external"])
         )
         existing = result.scalar_one_or_none()
         if existing:
+            # Refresh fields that may have been NULL or wrong in earlier runs
+            existing.experience_level = job_data.get("experience_level") or existing.experience_level
+            existing.location         = job_data.get("location") or existing.location
+            existing.url              = job_data.get("url") or existing.url
+            existing.employment_type  = job_data.get("employment_type") or existing.employment_type
             return existing, False
 
     # Fix #8: Mark job as synthetic if description was AI-generated

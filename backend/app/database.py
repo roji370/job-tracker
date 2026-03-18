@@ -45,12 +45,16 @@ async def init_db():
     RuntimeError if called from inside a running event loop (which FastAPI's
     lifespan always is). We therefore run the migration in a separate thread
     via run_in_executor so it gets its own clean event loop.
+
+    A secondary DDL safety-net runs after every migration path to guarantee
+    that new columns added by recent migrations exist, even if Alembic fails.
     """
     import logging
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
     from alembic.config import Config
     from alembic import command
+    from sqlalchemy import text
 
     logger = logging.getLogger(__name__)
 
@@ -73,3 +77,21 @@ async def init_db():
         logger.warning("⚠️  Alembic upgrade failed (%s) — falling back to create_all.", e)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+    # ── DDL safety-net ────────────────────────────────────────────────────────
+    # Idempotent ALTER TABLE statements guarantee that columns added by recent
+    # migrations actually exist, even if Alembic failed or was bypassed above.
+    # Each statement is independent so one failure doesn't block the others.
+    safety_ddl = [
+        # migration 0002: experience_level on jobs
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS experience_level VARCHAR",
+        # migration 0003: score_breakdown on job_matches
+        "ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS score_breakdown JSONB",
+    ]
+    async with engine.begin() as conn:
+        for stmt in safety_ddl:
+            try:
+                await conn.execute(text(stmt))
+            except Exception as ddl_err:
+                logger.warning("DDL safety-net skipped (%s): %s", stmt, ddl_err)
+    logger.info("✅ DDL safety-net complete.")

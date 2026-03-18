@@ -17,6 +17,20 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://jobtracker:jobtracker@localhost:5432/jobtracker"
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalise_database_url(cls, v: str) -> str:
+        """
+        Render (and many PaaS providers) supply postgres:// or postgresql://
+        connection strings. asyncpg requires postgresql+asyncpg:// scheme.
+        This validator rewrites the URL silently so both forms work.
+        """
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
     # ── API Authentication [REQUIRED IN PRODUCTION] ──────────────────────────
     # Set to any random 32-64 character string.
     # Clients must send:  X-API-Key: <value>

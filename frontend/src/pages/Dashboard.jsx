@@ -10,7 +10,7 @@ import {
 } from 'recharts'
 import StatCard from '../components/StatCard'
 import JobCard from '../components/JobCard'
-import { getMatchStats, listMatches, triggerPipeline, getLastRun, listCompanies } from '../utils/api'
+import { getMatchStats, listMatches, triggerPipelineAsync, getLastRun, listCompanies } from '../utils/api'
 import toast from 'react-hot-toast'
 import './Dashboard.css'
 
@@ -89,9 +89,9 @@ export default function Dashboard() {
             : 'all companies'
         toast.loading(`Running pipeline for ${label}…`, { id: 'pipeline' })
         try {
-            const res = await triggerPipeline(slugs)
+            const res = await triggerPipelineAsync(slugs)
             toast.success(
-                `Done! ${res.data.jobs_scraped} jobs scraped, ${res.data.matches_created} new matches.`,
+                `Pipeline started in background. Check last run for results soon.`,
                 { id: 'pipeline', duration: 5000 }
             )
             load()

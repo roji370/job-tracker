@@ -163,6 +163,11 @@ async def fetch_greenhouse_jobs(
         return []
 
     jobs = data.get("jobs", [])
+    
+    # Sort by updated_at descending to prioritize newest jobs within the fetch limit
+    # This prevents the pipeline from only repeatedly seeing the same older jobs.
+    jobs.sort(key=lambda j: j.get("updated_at") or "", reverse=True)
+    
     results = []
 
     for job in jobs:
@@ -220,6 +225,13 @@ async def fetch_lever_jobs(
     except Exception as e:
         logger.warning("Lever '%s' error: %s", slug, e)
         return []
+
+    # Sort descending by createdAt to prioritize newest postings within the fetch limit
+    if isinstance(postings, list):
+        try:
+            postings.sort(key=lambda p: p.get("createdAt") or 0, reverse=True)
+        except Exception as e:
+            logger.warning("Lever '%s' sort error: %s", slug, e)
 
     results = []
 

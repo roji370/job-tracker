@@ -34,7 +34,7 @@ export default function Matches() {
     const [statusFilter, setStatus] = useState('all')
     const [expLevel, setExpLevel] = useState('')
     const [locationQuery, setLocation] = useState('')
-    const [locationInput, setLocInput] = useState('')  // live input before debounce
+    const [locInput, setLocInput] = useState('')     // live location input (before committed search)
 
     // Unique locations extracted from current result set (for suggestions)
     const [locationSuggestions, setLocationSuggestions] = useState([])

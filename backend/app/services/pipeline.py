@@ -19,6 +19,8 @@ from app.utils.scraper import scrape_amazon_jobs
 from app.utils.matcher import match_job
 from app.utils.resume_parser import build_cv_data, extract_skills
 from app.utils.notifier import send_whatsapp, send_email, build_job_notification_message
+from app.utils.company_normalizer import normalize_company, is_top_company
+from app.utils.company_store import updateCompanyDatabase, get_db_tier, applyCompanyBoost
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -62,6 +64,15 @@ async def run_pipeline(
     raw_jobs = []
     try:
         raw_jobs = await scrape_amazon_jobs(company_slugs=company_slugs)
+        
+        # Normalize company names right after scraping
+        for job_data in raw_jobs:
+            if "company" in job_data:
+                job_data["company"] = normalize_company(job_data["company"])
+                
+        # Update our dynamic company tracking database
+        await updateCompanyDatabase(db, raw_jobs)
+        
         run.jobs_scraped = len(raw_jobs)
         logger.info("Scraped %d jobs", len(raw_jobs))
     except Exception as e:
@@ -131,9 +142,19 @@ async def run_pipeline(
                 None, match_job, cv_data, match_input
             )
 
-            score           = result["final_score"]
+            base_score      = result["final_score"]
             breakdown       = result["breakdown"]
             explanation_list = result["explanation"]
+            
+            # Apply company boost
+            normalized_company = normalize_company(job.company)
+            top_company = is_top_company(normalized_company)
+            db_tier = await get_db_tier(db, normalized_company)
+            
+            score = applyCompanyBoost(base_score, top_company, db_tier)
+            if score > base_score:
+                explanation_list.append(f"Company boost applied: {'Top company (+10)' if top_company else 'Tracked company (+5)'}")
+
             # Store explanation as a newline-joined string for Text column compat
             explanation_str = "\n".join(explanation_list)
 
@@ -154,6 +175,7 @@ async def run_pipeline(
                     "location":    job.location,
                     "url":         job.url,
                     "match_score": score,
+                    "is_top_company": top_company,
                     "explanation": explanation_str,
                 })
 

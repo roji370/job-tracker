@@ -48,5 +48,10 @@ class Job(Base):
         Index("ix_jobs_experience_level", "experience_level"),
     )
 
+    @property
+    def is_top_company(self) -> bool:
+        from app.utils.company_normalizer import is_top_company, normalize_company
+        return is_top_company(normalize_company(self.company))
+
     def __repr__(self) -> str:
         return f"<Job {self.title} @ {self.company}>"

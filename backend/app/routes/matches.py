@@ -17,6 +17,7 @@ from app.models.match import JobMatch
 from app.models.job import Job
 from app.models.resume import Resume
 from app.schemas import MatchOut, MatchToggleOut, MatchStatsOut, JobInMatchOut
+from app.utils.company_normalizer import is_top_company, normalize_company
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/matches", tags=["matches"])
@@ -158,6 +159,7 @@ def _to_match_out(m: JobMatch) -> MatchOut:
             posted_date=job.posted_date or "",
             experience_level=job.experience_level,
             is_synthetic=job.is_synthetic,
+            is_top_company=is_top_company(normalize_company(job.company)),
         )
     return MatchOut(
         id=m.id,

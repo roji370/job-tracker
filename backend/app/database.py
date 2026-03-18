@@ -87,6 +87,13 @@ async def init_db():
         "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS experience_level VARCHAR",
         # migration 0003: score_breakdown on job_matches
         "ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS score_breakdown JSONB",
+        # migration 0005: new companies table
+        "CREATE TABLE IF NOT EXISTS companies ("
+        "id SERIAL PRIMARY KEY, "
+        "name TEXT UNIQUE NOT NULL, "
+        "tier INT DEFAULT 3 NOT NULL, "
+        "last_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, "
+        "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)",
     ]
     async with engine.begin() as conn:
         for stmt in safety_ddl:

@@ -38,6 +38,7 @@ class JobOut(_OrmBase):
     is_active: bool
     # Fix #8: surfaced so the UI can display a "synthetic" badge
     is_synthetic: bool = False
+    is_top_company: bool = False
     created_at: datetime
 
 
@@ -93,6 +94,7 @@ class JobInMatchOut(BaseModel):
     posted_date: str = ""
     experience_level: Optional[str] = None
     is_synthetic: bool = False
+    is_top_company: bool = False
 
 
 class MatchOut(_OrmBase):

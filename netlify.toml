@@ -11,7 +11,7 @@
 #    It looks like: https://YOUR-SERVICE-NAME.onrender.com
 [[redirects]]
   from   = "/api/*"
-  to     = "https://YOUR-SERVICE-NAME.onrender.com/api/:splat"
+  to     = "https://job-tracker-1-hvss.onrender.com/api/:splat"
   status = 200
   force  = true
 

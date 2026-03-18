@@ -115,6 +115,7 @@
     transition: background var(--transition), color var(--transition);
     flex-shrink: 0;
 }
+
 .btn-icon:hover {
     background: var(--color-surface-2);
     color: var(--color-text);
@@ -200,10 +201,12 @@
     transition: all var(--transition);
     cursor: pointer;
 }
+
 .chip:hover {
     border-color: var(--color-primary);
     color: var(--color-text);
 }
+
 .chip-active {
     background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
     border-color: transparent;
@@ -214,11 +217,12 @@
 /* ── Company chip grid ─────────────────────────────────────────*/
 .company-picker-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 0.6rem;
     padding: 0.75rem 1.5rem 1rem;
-    max-height: 300px;
+    max-height: 400px;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .company-chip {
@@ -237,16 +241,19 @@
     transition: all var(--transition);
     text-align: left;
 }
+
 .company-chip:hover {
     border-color: var(--color-primary);
     background: var(--color-surface-3);
     transform: translateY(-1px);
 }
+
 .company-chip-active {
     border-color: var(--color-primary);
     background: rgba(99, 102, 241, 0.15);
     box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
 }
+
 .company-chip-active .company-chip-name {
     color: var(--color-primary-light);
 }
@@ -298,14 +305,17 @@
     .modal-box {
         border-radius: var(--radius-lg);
     }
+
     .company-picker-grid {
-        grid-template-columns: repeat(2, 1fr);
-        max-height: 240px;
+        grid-template-columns: 1fr;
+        max-height: 320px;
     }
+
     .modal-footer {
         flex-direction: column;
         align-items: flex-start;
     }
+
     .modal-footer-actions {
         width: 100%;
         justify-content: flex-end;

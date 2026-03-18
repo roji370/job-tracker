@@ -56,6 +56,18 @@ export default function Dashboard() {
 
     useEffect(() => { load() }, [load])
 
+    // Prevent body scroll when picker is open
+    useEffect(() => {
+        if (showPicker) {
+            document.body.style.overflow = 'hidden'
+        } else {
+            document.body.style.overflow = ''
+        }
+        return () => {
+            document.body.style.overflow = ''
+        }
+    }, [showPicker])
+
     const openPicker = async () => {
         setShowPicker(true)
         if (companies.length === 0) {

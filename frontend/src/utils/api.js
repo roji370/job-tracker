@@ -2,6 +2,7 @@ import axios from 'axios'
 import toast from 'react-hot-toast'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
+const API_KEY = import.meta.env.VITE_API_KEY || ''
 
 // Fix #26: Default short timeout for normal requests.
 // Long-running calls (pipeline sync) use their own timeout override.
@@ -12,7 +13,10 @@ const PIPELINE_TIMEOUT = 120_000 // 2 min — sync pipeline trigger
 const api = axios.create({
     baseURL: `${BASE_URL}/api`,
     timeout: DEFAULT_TIMEOUT,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+        'Content-Type': 'application/json',
+        ...(API_KEY && { 'X-API-Key': API_KEY }),
+    },
 })
 
 // Response interceptor — unified error display

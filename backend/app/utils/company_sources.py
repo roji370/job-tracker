@@ -16,25 +16,41 @@ Leave the list empty [] to import all jobs regardless of title.
 # ─── Companies to track ───────────────────────────────────────────────────────
 COMPANIES: list[dict] = [
     # ── Greenhouse ATS ──────────────────────────────────────────────────────
-    {"name": "Stripe",   "ats": "greenhouse", "slug": "stripe"},
-    {"name": "Shopify",  "ats": "greenhouse", "slug": "shopify"},
-    {"name": "Notion",   "ats": "greenhouse", "slug": "notion"},
-    {"name": "Reddit",   "ats": "greenhouse", "slug": "reddit"},
-    {"name": "Ramp",     "ats": "greenhouse", "slug": "ramp"},
-    {"name": "Airbnb",   "ats": "greenhouse", "slug": "airbnb"},
-    {"name": "Figma",    "ats": "greenhouse", "slug": "figma"},
-    {"name": "Airtable", "ats": "greenhouse", "slug": "airtable"},
-    {"name": "Brex",     "ats": "greenhouse", "slug": "brex"},
+    {"name": "Stripe",       "ats": "greenhouse", "slug": "stripe"},
+    {"name": "Shopify",      "ats": "greenhouse", "slug": "shopify"},
+    {"name": "Notion",       "ats": "greenhouse", "slug": "notion"},
+    {"name": "Reddit",       "ats": "greenhouse", "slug": "reddit"},
+    {"name": "Ramp",         "ats": "greenhouse", "slug": "ramp"},
+    {"name": "Airbnb",       "ats": "greenhouse", "slug": "airbnb"},
+    {"name": "Figma",        "ats": "greenhouse", "slug": "figma"},
+    {"name": "Airtable",     "ats": "greenhouse", "slug": "airtable"},
+    {"name": "Brex",         "ats": "greenhouse", "slug": "brex"},
+    {"name": "Discord",      "ats": "greenhouse", "slug": "discord"},
+    {"name": "Twilio",       "ats": "greenhouse", "slug": "twilio"},
+    {"name": "Datadog",      "ats": "greenhouse", "slug": "datadog"},
+    {"name": "Databricks",   "ats": "greenhouse", "slug": "databricks"},
+    {"name": "Snowflake",    "ats": "greenhouse", "slug": "snowflake"},
+    {"name": "Cloudflare",   "ats": "greenhouse", "slug": "cloudflare"},
+    {"name": "Coinbase",     "ats": "greenhouse", "slug": "coinbase"},
+    {"name": "Robinhood",    "ats": "greenhouse", "slug": "robinhood"},
+    {"name": "Scale AI",     "ats": "greenhouse", "slug": "scaleai"},
+    {"name": "Hugging Face", "ats": "greenhouse", "slug": "huggingface"},
+    {"name": "Anthropic",    "ats": "greenhouse", "slug": "anthropic"},
+    {"name": "OpenAI",       "ats": "greenhouse", "slug": "openai"},
+    {"name": "Plaid",        "ats": "greenhouse", "slug": "plaid"},
+    {"name": "Asana",        "ats": "greenhouse", "slug": "asana"},
+    {"name": "Linear",       "ats": "greenhouse", "slug": "linear"},
 
     # ── Lever ATS ───────────────────────────────────────────────────────────
-    {"name": "Netflix",  "ats": "lever", "slug": "netflix"},
-    {"name": "GitHub",   "ats": "lever", "slug": "github"},
-    {"name": "Dropbox",  "ats": "lever", "slug": "dropbox"},
-
-    # ── Add more companies here ──────────────────────────────────────────────
-    # {"name": "Vercel",   "ats": "lever",      "slug": "vercel"},
-    # {"name": "Linear",   "ats": "greenhouse", "slug": "linear"},
-    # {"name": "Clerk",    "ats": "greenhouse", "slug": "clerk"},
+    {"name": "Netflix",      "ats": "lever", "slug": "netflix"},
+    {"name": "GitHub",       "ats": "lever", "slug": "github"},
+    {"name": "Dropbox",      "ats": "lever", "slug": "dropbox"},
+    {"name": "Vercel",       "ats": "lever", "slug": "vercel"},
+    {"name": "Palantir",     "ats": "lever", "slug": "palantir"},
+    {"name": "Canva",        "ats": "lever", "slug": "canva"},
+    {"name": "HubSpot",      "ats": "lever", "slug": "hubspot"},
+    {"name": "Fastly",       "ats": "lever", "slug": "fastly"},
+    {"name": "Retool",       "ats": "lever", "slug": "retool"},
 ]
 
 # ─── Title keyword filter ─────────────────────────────────────────────────────

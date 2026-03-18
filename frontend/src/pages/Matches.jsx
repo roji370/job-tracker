@@ -29,6 +29,10 @@ export default function Matches() {
     const [matches, setMatches] = useState([])
     const [loading, setLoading] = useState(true)
 
+    // Pagination
+    const [currentPage, setCurrentPage] = useState(1)
+    const [pageSize, setPageSize] = useState(10)
+
     // Search & filters (client-side search, server-side rest)
     const [search, setSearch] = useState('')
     const [statusFilter, setStatus] = useState('all')
@@ -68,8 +72,13 @@ export default function Matches() {
 
     useEffect(() => { load() }, [load])
 
+    // Reset pagination when search or filters change
+    useEffect(() => {
+        setCurrentPage(1)
+    }, [search, statusFilter, expLevel, locationQuery])
+
     // Client-side search (title / company) applied on top of server results
-    const displayed = matches.filter(m => {
+    const filtered = matches.filter(m => {
         if (!search) return true
         const q = search.toLowerCase()
         return (
@@ -77,6 +86,9 @@ export default function Matches() {
             m.job?.company?.toLowerCase().includes(q)
         )
     })
+
+    const totalPages = Math.ceil(filtered.length / pageSize)
+    const displayed = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
     const hasActiveFilters = statusFilter !== 'all' || expLevel || locationQuery
 
@@ -244,7 +256,7 @@ export default function Matches() {
             {/* ── Results count ────────────────────────────────────────── */}
             {!loading && (
                 <p className="matches-count">
-                    {displayed.length} match{displayed.length !== 1 ? 'es' : ''}
+                    {filtered.length} match{filtered.length !== 1 ? 'es' : ''}
                     {search && ` for "${search}"`}
                 </p>
             )}
@@ -256,7 +268,7 @@ export default function Matches() {
                         <div key={i} className="skeleton" style={{ height: 160 }} />
                     ))}
                 </div>
-            ) : displayed.length === 0 ? (
+            ) : filtered.length === 0 ? (
                 <div className="card empty-state">
                     <Zap size={40} />
                     <p>No matches found. Try running the pipeline or adjusting filters.</p>
@@ -267,13 +279,50 @@ export default function Matches() {
                     )}
                 </div>
             ) : (
-                <AnimatePresence>
-                    <div className="section-grid">
-                        {displayed.map(m => (
-                            <JobCard key={m.id} match={m} onUpdate={load} />
-                        ))}
+                <>
+                    <AnimatePresence>
+                        <div className="section-grid grid-2">
+                            {displayed.map(m => (
+                                <JobCard key={m.id} match={m} onUpdate={load} />
+                            ))}
+                        </div>
+                    </AnimatePresence>
+
+                    {/* ── Pagination Controls ────────────────────────────────── */}
+                    <div className="pagination-controls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem' }}>
+                        <div className="page-size-selector">
+                            <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginRight: '0.5rem' }}>Show:</span>
+                            <select
+                                value={pageSize}
+                                onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                                style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '0.3rem 0.6rem', outline: 'none' }}
+                            >
+                                <option value={10}>10</option>
+                                <option value={20}>20</option>
+                                <option value={50}>50</option>
+                            </select>
+                        </div>
+                        <div className="page-numbers" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <button
+                                className="btn btn-secondary"
+                                disabled={currentPage === 1}
+                                onClick={() => setCurrentPage(p => p - 1)}
+                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.875rem' }}
+                            >
+                                Prev
+                            </button>
+                            <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Page {currentPage} of {totalPages || 1}</span>
+                            <button
+                                className="btn btn-secondary"
+                                disabled={currentPage === totalPages || totalPages === 0}
+                                onClick={() => setCurrentPage(p => p + 1)}
+                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.875rem' }}
+                            >
+                                Next
+                            </button>
+                        </div>
                     </div>
-                </AnimatePresence>
+                </>
             )}
         </div>
     )

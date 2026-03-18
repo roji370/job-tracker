@@ -143,13 +143,13 @@ export default function JobCard({ match, onUpdate }) {
                             {job.description && (
                                 <div className="job-detail-section">
                                     <h4>About the Role</h4>
-                                    <p>{job.description}</p>
+                                    <div className="job-html-content" dangerouslySetInnerHTML={{ __html: job.description }} />
                                 </div>
                             )}
                             {job.requirements && (
                                 <div className="job-detail-section">
                                     <h4>Requirements</h4>
-                                    <p>{job.requirements}</p>
+                                    <div className="job-html-content" dangerouslySetInnerHTML={{ __html: job.requirements }} />
                                 </div>
                             )}
                             {job.posted_date && (

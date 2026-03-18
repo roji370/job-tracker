@@ -179,6 +179,51 @@
     line-height: 1.6;
 }
 
+/* ── Rendered HTML Content ─────────────────────────────────── */
+.job-html-content {
+    font-size: 0.825rem;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.job-html-content p,
+.job-html-content div {
+    margin-bottom: 0.75rem;
+}
+
+.job-html-content ul,
+.job-html-content ol {
+    margin-bottom: 0.75rem;
+    padding-left: 1.25rem;
+}
+
+.job-html-content li {
+    margin-bottom: 0.35rem;
+}
+
+.job-html-content a {
+    color: var(--color-primary-light);
+    text-decoration: underline;
+}
+
+.job-html-content strong,
+.job-html-content b,
+.job-html-content h1,
+.job-html-content h2,
+.job-html-content h3,
+.job-html-content h4,
+.job-html-content h5,
+.job-html-content h6 {
+    color: var(--color-text);
+    font-weight: 700;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
 .job-card-posted {
     font-size: 0.75rem;
     color: var(--color-text-subtle);

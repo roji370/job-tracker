@@ -4,10 +4,7 @@ import {
     Zap, Briefcase, BookmarkCheck, CheckCircle,
     Play, RefreshCw, AlertCircle, X, Building2, ChevronDown,
 } from 'lucide-react'
-import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid,
-    Tooltip, ResponsiveContainer,
-} from 'recharts'
+
 import StatCard from '../components/StatCard'
 import JobCard from '../components/JobCard'
 import { getMatchStats, listMatches, triggerPipelineAsync, getLastRun, listCompanies } from '../utils/api'
@@ -41,7 +38,7 @@ export default function Dashboard() {
         try {
             const [statsRes, matchesRes, lastRunRes] = await Promise.all([
                 getMatchStats(),
-                listMatches({ min_score: 60, limit: 6 }),
+                listMatches({ min_score: 60, limit: 4 }),
                 getLastRun(),
             ])
             setStats(statsRes.data)
@@ -114,18 +111,7 @@ export default function Dashboard() {
         }
     }
 
-    // Build chart data from last 7 "sessions" (mocked from lastRun data)
-    const chartData = lastRun && lastRun.jobs_scraped
-        ? [
-            { name: 'Previous', jobs: Math.max(0, (lastRun.jobs_scraped || 0) - 4), matches: Math.max(0, (lastRun.matches_created || 0) - 2) },
-            { name: 'This Run', jobs: lastRun.jobs_scraped || 0, matches: lastRun.matches_created || 0 },
-        ]
-        : [
-            { name: 'Run 1', jobs: 12, matches: 5 },
-            { name: 'Run 2', jobs: 18, matches: 9 },
-            { name: 'Run 3', jobs: 20, matches: 14 },
-            { name: 'Latest', jobs: 15, matches: 10 },
-        ]
+
 
     return (
         <div className="page">
@@ -296,38 +282,8 @@ export default function Dashboard() {
                 </motion.div>
             )}
 
-            {/* Chart + Last Run */}
-            <div className="dashboard-mid">
-                {/* Activity Chart */}
-                <div className="card dashboard-chart-card">
-                    <h2 className="section-title">Pipeline Activity</h2>
-                    <ResponsiveContainer width="100%" height={200}>
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                            <defs>
-                                <linearGradient id="gradJobs" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35} />
-                                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                                </linearGradient>
-                                <linearGradient id="gradMatches" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.35} />
-                                    <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                            <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
-                            <Tooltip
-                                contentStyle={{ background: '#111224', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10 }}
-                                labelStyle={{ color: '#f1f5f9' }}
-                                itemStyle={{ color: '#94a3b8' }}
-                            />
-                            <Area type="monotone" dataKey="jobs" stroke="#6366f1" strokeWidth={2} fill="url(#gradJobs)" name="Jobs Scraped" />
-                            <Area type="monotone" dataKey="matches" stroke="#22d3ee" strokeWidth={2} fill="url(#gradMatches)" name="Matches Created" />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                </div>
-
-                {/* Last Run Info */}
+            {/* Last Run */}
+            <div style={{ maxWidth: 400, marginBottom: '2rem' }}>
                 <div className="card dashboard-lastrun-card">
                     <h2 className="section-title">Last Pipeline Run</h2>
                     {lastRun && lastRun.jobs_scraped !== undefined ? (
@@ -375,8 +331,8 @@ export default function Dashboard() {
                     </button>
                 </div>
                 {loading ? (
-                    <div className="section-grid">
-                        {[...Array(3)].map((_, i) => <div key={i} className="skeleton" style={{ height: 160 }} />)}
+                    <div className="section-grid grid-2">
+                        {[...Array(4)].map((_, i) => <div key={i} className="skeleton" style={{ height: 160 }} />)}
                     </div>
                 ) : topMatches.length === 0 ? (
                     <div className="card empty-state">
@@ -388,7 +344,7 @@ export default function Dashboard() {
                         variants={stagger.container}
                         initial="hidden"
                         animate="visible"
-                        className="section-grid"
+                        className="section-grid grid-2"
                     >
                         {topMatches.map((m) => (
                             <motion.div key={m.id} variants={stagger.item}>

@@ -77,18 +77,65 @@ _EXPERIENCE_PATTERNS: list[tuple[str, list[str]]] = [
     ("mid",       []),   # Default / catch-all — applied if none of the above match
 ]
 
+# Matches patterns like: "5+ years", "8 years", "3-5 years", "at least 6 years",
+# "minimum 4 years", "10+ years of experience", "2–4 years"
+_YEARS_RE = re.compile(
+    r"(?:at\s+least\s+|minimum\s+|(?:\d+\s*[-–]\s*)?)"  # optional qualifier / range start
+    r"(\d+)\s*\+?\s*"                                     # the main number
+    r"years?\b",                                           # 'year' or 'years'
+    re.IGNORECASE,
+)
 
-def _infer_experience_level(title: str) -> str:
+# Map max years found in description → experience level
+_YEARS_TO_LEVEL: list[tuple[int, str]] = [
+    (12, "director"),   # 12+ years → director / VP
+    (8,  "lead"),       #  8+ years → lead / staff / architect
+    (5,  "senior"),     #  5+ years → senior
+    (2,  "mid"),        #  2+ years → mid-level
+    (0,  "entry"),      #  < 2 years → entry
+]
+
+
+def _infer_level_from_years(text: str) -> str | None:
     """
-    Infer experience level from a job title string.
+    Scan free-form text for years-of-experience requirements and return the
+    corresponding experience level, or None if no year pattern is found.
+
+    Takes the *maximum* value when multiple patterns appear (e.g. a job listing
+    both '1-3 years for one role' context and '5+ years for the core skill').
+    """
+    if not text:
+        return None
+    matches = _YEARS_RE.findall(text)
+    if not matches:
+        return None
+    max_years = max(int(y) for y in matches)
+    for threshold, level in _YEARS_TO_LEVEL:
+        if max_years >= threshold:
+            return level
+    return "entry"
+
+
+def _infer_experience_level(title: str, body: str = "") -> str:
+    """
+    Infer experience level from a job title (primary) with the job
+    description / requirements as a fallback signal (secondary).
+
+    Strategy:
+      1. Title keywords win unconditionally (director/lead/senior/entry).
+      2. If the title gives no signal (would default to 'mid'), scan `body`
+         for years-of-experience patterns ("5+ years", "8 years", etc.).
+      3. If still no signal, return 'mid' as the safe default.
+
     Returns one of: 'entry' | 'mid' | 'senior' | 'lead' | 'director'
-    Uses word-boundary regex so keywords at start/end of title are matched.
     """
     title_lower = title.lower()
     for level, patterns in _EXPERIENCE_PATTERNS:
         if any(re.search(pat, title_lower) for pat in patterns):
             return level
-    return "mid"  # Default when no signal is present
+    # Title gave no clear signal — try years-of-experience in the body text
+    level_from_years = _infer_level_from_years(body)
+    return level_from_years if level_from_years is not None else "mid"
 
 
 # ── Greenhouse fetcher ────────────────────────────────────────────────────────
@@ -139,7 +186,7 @@ async def fetch_greenhouse_jobs(
             "job_id_external": f"gh_{job.get('id', '')}",
             "employment_type": "Full-time",
             "posted_date": posted,
-            "experience_level": _infer_experience_level(title),
+            "experience_level": _infer_experience_level(title, description),
             "is_synthetic": False,    # Real job from official API
         })
 
@@ -205,7 +252,7 @@ async def fetch_lever_jobs(
             "job_id_external": f"lv_{posting.get('id', '')}",
             "employment_type": "Full-time",
             "posted_date": "",
-            "experience_level": _infer_experience_level(title),
+            "experience_level": _infer_experience_level(title, description + " " + req_text),
             "is_synthetic": False,    # Real job from official API
         })
 

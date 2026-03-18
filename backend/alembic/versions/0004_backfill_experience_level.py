@@ -27,11 +27,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Only backfill rows where experience_level is currently NULL
+    # Two-tier strategy for rows where experience_level IS NULL:
+    #   Tier 1 → job title keyword regex (same patterns as Python scraper)
+    #   Tier 2 → max years-of-experience found in description+requirements
+    #   Default → 'mid'
     op.execute(
         sa.text("""
         UPDATE jobs
         SET experience_level = CASE
+            -- Tier 1: title keywords (word-boundary regex)
             WHEN lower(title) ~* '\\mdirector\\m|\\mvp\\m|\\bvice president\\b|\\bhead of\\b|\\mprincipal\\m'
                 THEN 'director'
             WHEN lower(title) ~* '\\mlead\\m|\\mstaff\\m|\\marchitect\\m|\\mdistinguished\\m'
@@ -40,11 +44,33 @@ def upgrade() -> None:
                 THEN 'senior'
             WHEN lower(title) ~* '\\mjunior\\m|\\bjr\\b|\\mentry\\m|\\massociate\\m|\\mgraduate\\m|\\mintern\\m|\\bnew grad\\b'
                 THEN 'entry'
-            ELSE 'mid'
+            -- Tier 2: years-of-experience in description + requirements
+            ELSE (
+                SELECT CASE
+                    WHEN max_yrs >= 12 THEN 'director'
+                    WHEN max_yrs >= 8  THEN 'lead'
+                    WHEN max_yrs >= 5  THEN 'senior'
+                    WHEN max_yrs >= 2  THEN 'mid'
+                    WHEN max_yrs >= 0  THEN 'entry'
+                    ELSE 'mid'
+                END
+                FROM (
+                    SELECT COALESCE(
+                        (SELECT MAX(CAST(m[1] AS INT))
+                         FROM regexp_matches(
+                           COALESCE(jobs.description,'') || ' ' || COALESCE(jobs.requirements,''),
+                           E'(?:at\\\\s+least\\\\s+|minimum\\\\s+|(?:\\\\d+\\\\s*[-\\u2013]\\\\s*)?)([0-9]+)\\\\s*\\\\+?\\\\s*years?',
+                           'gi'
+                         ) AS m
+                        ), -1
+                    ) AS max_yrs
+                ) AS yrs
+            )
         END
         WHERE experience_level IS NULL
         """)
     )
+
 
 
 def downgrade() -> None:

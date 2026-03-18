@@ -146,31 +146,65 @@ async def _run_in_background(company_slugs: list[str] | None = None):
 async def backfill_experience_levels(db: AsyncSession = Depends(get_db)):
     """
     One-shot backfill: re-infer experience_level for all jobs that currently
-    have NULL (i.e. jobs scraped before the experience_level column was added).
+    have NULL, using a two-tier strategy that mirrors the Python scraper logic:
+
+      Tier 1 – Job title keyword matching (director/lead/senior/entry patterns)
+      Tier 2 – Years-of-experience in description+requirements
+               ("5+ years" → senior, "8 years" → lead, etc.)
+      Default – 'mid' when neither signal is present
 
     Safe to call multiple times — only updates NULL rows.
     """
-    from sqlalchemy import update, case, text as sa_text
+    from sqlalchemy import update, case, func, literal
+    from sqlalchemy import text as sa_text
     from app.models.job import Job as JobModel
 
-    # PostgreSQL word-boundary regex operator ~* (case-insensitive)
-    director_pat = r"\mdirector\m|\mvp\m|\bvice president\b|\bhead of\b|\mprincipal\m"
-    lead_pat     = r"\mlead\m|\mstaff\m|\marchitect\m|\mdistinguished\m"
-    senior_pat   = r"\msenior\m|\bsr\b"
-    entry_pat    = r"\mjunior\m|\bjr\b|\mentry\m|\massociate\m|\mgraduate\m|\mintern\m|\bnew grad\b"
+    # ── Tier 1: Title keyword patterns (PostgreSQL ~* = case-insensitive regex) ──
+    director_title = r"\mdirector\m|\mvp\m|\bvice president\b|\bhead of\b|\mprincipal\m"
+    lead_title     = r"\mlead\m|\mstaff\m|\marchitect\m|\mdistinguished\m"
+    senior_title   = r"\msenior\m|\bsr\b"
+    entry_title    = r"\mjunior\m|\bjr\b|\mentry\m|\massociate\m|\mgraduate\m|\mintern\m|\bnew grad\b"
 
-    # SQLAlchemy 2.0 case() syntax: case((cond, val), (cond, val), ..., else_=...)
-    experience_case = case(
-        (JobModel.title.op("~*")(director_pat), "director"),
-        (JobModel.title.op("~*")(lead_pat),     "lead"),
-        (JobModel.title.op("~*")(senior_pat),   "senior"),
-        (JobModel.title.op("~*")(entry_pat),    "entry"),
+    # ── Tier 2: Years-of-experience in description + requirements ──────────────
+    # Mirrors _YEARS_TO_LEVEL: 12+ → director, 8+ → lead, 5+ → senior, 2+ → mid, <2 → entry
+    # We use regexp_matches to find all year numbers in the text then apply thresholds.
+    # body = coalesce(description, '') || ' ' || coalesce(requirements, '')
+    body = func.coalesce(JobModel.description, literal("")) + literal(" ") + func.coalesce(JobModel.requirements, literal(""))
+
+    # Extract max years value mentioned in the body text using a subquery expression
+    # regexp_matches returns setof text[] — we use a subquery to aggregate the max
+    max_years_sql = sa_text(
+        "CAST(COALESCE(("
+        "  SELECT MAX(CAST(m[1] AS INT))"
+        "  FROM regexp_matches("
+        "    COALESCE(jobs.description, '') || ' ' || COALESCE(jobs.requirements, ''), "
+        "    E'(?:at\\\\s+least\\\\s+|minimum\\\\s+|(?:\\\\d+\\\\s*[-\\u2013]\\\\s*)?)([0-9]+)\\\\s*\\\\+?\\\\s*years?', "
+        "    'gi'"
+        "  ) AS m"
+        "), -1) AS INT)"
+    )
+
+    years_level_case = case(
+        (max_years_sql >= 12, "director"),
+        (max_years_sql >= 8,  "lead"),
+        (max_years_sql >= 5,  "senior"),
+        (max_years_sql >= 2,  "mid"),
+        (max_years_sql >= 0,  "entry"),
         else_="mid",
+    )
+
+    # ── Combined: title keywords first, years fallback, then 'mid' default ──
+    experience_case = case(
+        (JobModel.title.op("~*")(director_title), "director"),
+        (JobModel.title.op("~*")(lead_title),     "lead"),
+        (JobModel.title.op("~*")(senior_title),   "senior"),
+        (JobModel.title.op("~*")(entry_title),    "entry"),
+        else_=years_level_case,
     )
 
     stmt = (
         update(JobModel)
-        .where(JobModel.experience_level == None)  # noqa: E711
+        .where(JobModel.experience_level.is_(None))
         .values(experience_level=experience_case)
         .returning(JobModel.id)
     )
@@ -182,5 +216,3 @@ async def backfill_experience_levels(db: AsyncSession = Depends(get_db)):
         "message": f"Backfilled experience_level for {len(updated_ids)} jobs.",
         "updated_count": len(updated_ids),
     }
-
-

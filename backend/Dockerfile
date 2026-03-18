@@ -25,7 +25,8 @@ RUN mkdir -p /app/uploads
 RUN useradd -m -u 1001 appuser && chown -R appuser:appuser /app
 USER appuser
 
-EXPOSE 8000
+EXPOSE 10000
 
 # Single worker — APScheduler must run in one process only
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+# Port 10000 = Render's default port (avoids "Restarting deploy" network config cycle)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1"]

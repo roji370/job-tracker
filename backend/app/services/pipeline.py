@@ -109,14 +109,15 @@ async def run_pipeline(
             if existing.scalar_one_or_none():
                 continue
 
-            # Build job_data dict for the weighted matcher.
+            # Build a clean dict for the weighted matcher (avoid shadowing the
+            # for-loop variable job_data which holds the raw scraper payload).
             # Extract skills_required from the requirements text so
             # calculate_skills_score() has an explicit list to compare against.
             requirements_text = job.requirements or ""
             description_text  = job.description  or ""
             skills_required   = extract_skills(requirements_text + " " + description_text)
 
-            job_data = {
+            match_input = {
                 "title":            job.title,
                 "skills_required":  skills_required,
                 "experience_level": job.experience_level,
@@ -127,7 +128,7 @@ async def run_pipeline(
             # Run weighted matching in a thread pool (CPU-bound but very fast)
             loop   = asyncio.get_running_loop()
             result = await loop.run_in_executor(
-                None, match_job, cv_data, job_data
+                None, match_job, cv_data, match_input
             )
 
             score           = result["final_score"]

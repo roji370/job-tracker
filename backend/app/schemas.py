@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 # ── Shared config ─────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ class JobOut(_OrmBase):
     source: str
     employment_type: Optional[str] = None
     posted_date: Optional[str] = None
+    experience_level: Optional[str] = None
     is_active: bool
     # Fix #8: surfaced so the UI can display a "synthetic" badge
     is_synthetic: bool = False
@@ -90,18 +91,26 @@ class JobInMatchOut(BaseModel):
     source: str = ""
     employment_type: str = ""
     posted_date: str = ""
+    experience_level: Optional[str] = None
     is_synthetic: bool = False
 
 
 class MatchOut(_OrmBase):
     id: uuid.UUID
     match_score: float
-    explanation: Optional[str] = None
+    explanation: Optional[Any] = None   # str (legacy) or list[str] (new matcher)
+    score_breakdown: Optional[dict] = None
     is_saved: bool
     is_applied: bool
     is_notified: bool
     created_at: datetime
     job: Optional[JobInMatchOut] = None
+
+    @field_validator("explanation", mode="before")
+    @classmethod
+    def _coerce_explanation(cls, v: Any) -> Any:
+        """Accept both the legacy single-string and the new list-of-strings format."""
+        return v  # pass through as-is; frontend handles both
 
 
 class MatchToggleOut(_OrmBase):
@@ -132,8 +141,29 @@ class NotificationLogOut(_OrmBase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Company schemas
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CompanyOut(BaseModel):
+    name: str
+    ats: str
+    slug: str
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Pipeline schemas
 # ─────────────────────────────────────────────────────────────────────────────
+
+class PipelineRunRequest(BaseModel):
+    """Optional request body for pipeline trigger endpoints."""
+    companies: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "List of company slugs to scrape (e.g. ['stripe', 'github']). "
+            "Omit or pass null to scrape all configured companies."
+        ),
+    )
+
 
 class PipelineRunOut(BaseModel):
     id: Optional[uuid.UUID] = None

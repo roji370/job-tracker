@@ -64,6 +64,30 @@ def _title_matches_filter(title: str) -> bool:
     return any(kw.lower() in title_lower for kw in JOB_TITLE_KEYWORDS)
 
 
+# ── Experience level inference ────────────────────────────────────────────────
+
+# Ordered from most-specific to least-specific so the first match wins.
+_EXPERIENCE_PATTERNS: list[tuple[str, list[str]]] = [
+    ("director",  ["director", "vp ", "vice president", "head of", "principal"]),
+    ("lead",      ["lead ", "staff ", "architect", "distinguished"]),
+    ("senior",    ["senior", "sr.", "sr ", "experienced"]),
+    ("entry",     ["junior", "jr.", "jr ", "entry", "associate", "graduate", "intern", "new grad"]),
+    ("mid",       []),   # Default / catch-all — applied if none of the above match
+]
+
+
+def _infer_experience_level(title: str) -> str:
+    """
+    Infer experience level from a job title string.
+    Returns one of: 'entry' | 'mid' | 'senior' | 'lead' | 'director'
+    """
+    title_lower = title.lower()
+    for level, keywords in _EXPERIENCE_PATTERNS:
+        if any(kw in title_lower for kw in keywords):
+            return level
+    return "mid"  # Default when no signal is present
+
+
 # ── Greenhouse fetcher ────────────────────────────────────────────────────────
 
 async def fetch_greenhouse_jobs(
@@ -112,6 +136,7 @@ async def fetch_greenhouse_jobs(
             "job_id_external": f"gh_{job.get('id', '')}",
             "employment_type": "Full-time",
             "posted_date": posted,
+            "experience_level": _infer_experience_level(title),
             "is_synthetic": False,    # Real job from official API
         })
 
@@ -177,6 +202,7 @@ async def fetch_lever_jobs(
             "job_id_external": f"lv_{posting.get('id', '')}",
             "employment_type": "Full-time",
             "posted_date": "",
+            "experience_level": _infer_experience_level(title),
             "is_synthetic": False,    # Real job from official API
         })
 
@@ -189,21 +215,38 @@ async def fetch_lever_jobs(
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-async def scrape_all_companies(limit_per_company: int = 20) -> list[dict]:
+async def scrape_all_companies(
+    limit_per_company: int = 20,
+    company_slugs: list[str] | None = None,
+) -> list[dict]:
     """
-    Fetch jobs from all companies in company_sources.COMPANIES.
+    Fetch jobs from all (or a subset of) companies in company_sources.COMPANIES.
+
+    Args:
+        limit_per_company: Max jobs to fetch per company.
+        company_slugs: If provided, only scrape companies whose slug is in this list.
+                       Pass None (default) to scrape all companies.
 
     Makes all requests concurrently (one per company) for speed.
     Returns a flat list of job dicts across all companies.
     """
     all_jobs: list[dict] = []
 
+    # Filter the company list if slugs were specified
+    target_companies = COMPANIES
+    if company_slugs is not None:
+        slugs_lower = {s.lower() for s in company_slugs}
+        target_companies = [c for c in COMPANIES if c["slug"].lower() in slugs_lower]
+        if not target_companies:
+            logger.warning("No matching companies found for slugs: %s", company_slugs)
+            return []
+
     async with httpx.AsyncClient(
         headers={"User-Agent": "JobTracker/1.0 (legitimate job aggregator)"},
         follow_redirects=True,
     ) as client:
         tasks = []
-        for company in COMPANIES:
+        for company in target_companies:
             name = company["name"]
             ats  = company["ats"].lower()
             slug = company["slug"]
@@ -218,7 +261,7 @@ async def scrape_all_companies(limit_per_company: int = 20) -> list[dict]:
         # Fetch all companies concurrently, gather results
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for company, result in zip(COMPANIES, results):
+        for company, result in zip(target_companies, results):
             if isinstance(result, Exception):
                 logger.error("Failed to fetch '%s': %s", company["name"], result)
             elif isinstance(result, list):
@@ -227,15 +270,23 @@ async def scrape_all_companies(limit_per_company: int = 20) -> list[dict]:
     logger.info(
         "Total jobs fetched: %d from %d companies",
         len(all_jobs),
-        len(COMPANIES),
+        len(target_companies),
     )
     return all_jobs
 
 
 # ── Backwards-compatible alias (used by services/pipeline.py) ─────────────────
-async def scrape_amazon_jobs(query: str = "", limit: int = 20) -> list[dict]:
+async def scrape_amazon_jobs(
+    query: str = "",
+    limit: int = 20,
+    company_slugs: list[str] | None = None,
+) -> list[dict]:
     """
-    Legacy alias kept so pipeline.py doesn't need changes.
-    Ignores `query` and `limit` — use company_sources.py to configure.
+    Legacy alias — wraps scrape_all_companies.
+    `query` and `limit` are ignored; configure via company_sources.py.
+    Pass `company_slugs` to restrict scraping to specific companies.
     """
-    return await scrape_all_companies(limit_per_company=settings.JOB_FETCH_LIMIT)
+    return await scrape_all_companies(
+        limit_per_company=settings.JOB_FETCH_LIMIT,
+        company_slugs=company_slugs,
+    )

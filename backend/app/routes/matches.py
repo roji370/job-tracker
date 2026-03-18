@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.match import JobMatch
+from app.models.job import Job
 from app.models.resume import Resume
 from app.schemas import MatchOut, MatchToggleOut, MatchStatsOut, JobInMatchOut
 
@@ -57,17 +58,27 @@ async def list_matches(
     min_score: float = Query(0.0, ge=0, le=100),
     saved_only: bool = Query(False),
     applied_only: bool = Query(False),
+    experience_level: Optional[str] = Query(
+        None,
+        description="Filter by experience level: entry | mid | senior | lead | director",
+    ),
+    location: Optional[str] = Query(
+        None,
+        description="Filter by location keyword (case-insensitive, partial match)",
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
     """
     List all job matches. Optionally filter by resume, score threshold,
-    saved or applied status. Includes full job details.
+    saved/applied status, experience level, and location.
+    Includes full job details.
     """
     stmt = (
         select(JobMatch)
         .options(selectinload(JobMatch.job), selectinload(JobMatch.resume))
+        .join(Job, JobMatch.job_id == Job.id)
         .where(JobMatch.match_score >= min_score)
     )
     if resume_id:
@@ -85,6 +96,10 @@ async def list_matches(
         stmt = stmt.where(JobMatch.is_saved == True)
     if applied_only:
         stmt = stmt.where(JobMatch.is_applied == True)
+    if experience_level:
+        stmt = stmt.where(Job.experience_level == experience_level.lower())
+    if location:
+        stmt = stmt.where(Job.location.ilike(f"%{location}%"))
 
     stmt = stmt.order_by(JobMatch.match_score.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
@@ -141,12 +156,14 @@ def _to_match_out(m: JobMatch) -> MatchOut:
             source=job.source or "",
             employment_type=job.employment_type or "",
             posted_date=job.posted_date or "",
+            experience_level=job.experience_level,
             is_synthetic=job.is_synthetic,
         )
     return MatchOut(
         id=m.id,
         match_score=m.match_score,
         explanation=m.explanation,
+        score_breakdown=m.score_breakdown,
         is_saved=m.is_saved,
         is_applied=m.is_applied,
         is_notified=m.is_notified,

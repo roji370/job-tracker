@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
     Zap, Briefcase, BookmarkCheck, CheckCircle,
-    Play, RefreshCw, AlertCircle,
+    Play, RefreshCw, AlertCircle, X, Building2, ChevronDown,
 } from 'lucide-react'
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -10,7 +10,7 @@ import {
 } from 'recharts'
 import StatCard from '../components/StatCard'
 import JobCard from '../components/JobCard'
-import { getMatchStats, listMatches, triggerPipeline, getLastRun } from '../utils/api'
+import { getMatchStats, listMatches, triggerPipeline, getLastRun, listCompanies } from '../utils/api'
 import toast from 'react-hot-toast'
 import './Dashboard.css'
 
@@ -19,12 +19,23 @@ const stagger = {
     item: { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } },
 }
 
+const ATS_COLORS = {
+    greenhouse: '#24a148',
+    lever: '#3b82f6',
+}
+
 export default function Dashboard() {
     const [stats, setStats] = useState(null)
     const [topMatches, setTopMatches] = useState([])
     const [lastRun, setLastRun] = useState(null)
     const [running, setRunning] = useState(false)
     const [loading, setLoading] = useState(true)
+
+    // Company picker modal state
+    const [showPicker, setShowPicker] = useState(false)
+    const [companies, setCompanies] = useState([])
+    const [selectedSlugs, setSelectedSlugs] = useState([]) // empty = all
+    const [companiesLoading, setCompaniesLoading] = useState(false)
 
     const load = useCallback(async () => {
         try {
@@ -45,13 +56,42 @@ export default function Dashboard() {
 
     useEffect(() => { load() }, [load])
 
+    const openPicker = async () => {
+        setShowPicker(true)
+        if (companies.length === 0) {
+            setCompaniesLoading(true)
+            try {
+                const res = await listCompanies()
+                setCompanies(res.data)
+            } catch {
+                toast.error('Could not load company list.')
+            } finally {
+                setCompaniesLoading(false)
+            }
+        }
+    }
+
+    const toggleSlug = (slug) => {
+        setSelectedSlugs(prev =>
+            prev.includes(slug) ? prev.filter(s => s !== slug) : [...prev, slug]
+        )
+    }
+
+    const selectAll = () => setSelectedSlugs([])
+    const isAllSelected = selectedSlugs.length === 0
+
     const handleRunPipeline = async () => {
+        setShowPicker(false)
         setRunning(true)
-        toast.loading('Running pipeline…', { id: 'pipeline' })
+        const slugs = selectedSlugs.length > 0 ? selectedSlugs : null
+        const label = slugs
+            ? slugs.map(s => companies.find(c => c.slug === s)?.name || s).join(', ')
+            : 'all companies'
+        toast.loading(`Running pipeline for ${label}…`, { id: 'pipeline' })
         try {
-            const res = await triggerPipeline()
+            const res = await triggerPipeline(slugs)
             toast.success(
-                `Pipeline done! ${res.data.jobs_scraped} jobs scraped, ${res.data.matches_created} new matches.`,
+                `Done! ${res.data.jobs_scraped} jobs scraped, ${res.data.matches_created} new matches.`,
                 { id: 'pipeline', duration: 5000 }
             )
             load()
@@ -85,16 +125,114 @@ export default function Dashboard() {
                 </div>
                 <button
                     className={`btn btn-primary ${running ? 'btn-loading' : ''}`}
-                    onClick={handleRunPipeline}
+                    onClick={openPicker}
                     disabled={running}
                     id="run-pipeline-btn"
                 >
                     {running
                         ? <><div className="spinner" />Running…</>
-                        : <><Play size={16} />Run Pipeline</>
+                        : <><Play size={16} />Run Pipeline<ChevronDown size={14} /></>
                     }
                 </button>
             </div>
+
+            {/* Company Picker Modal */}
+            <AnimatePresence>
+                {showPicker && (
+                    <motion.div
+                        className="modal-backdrop"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setShowPicker(false)}
+                    >
+                        <motion.div
+                            className="modal-box company-picker-modal"
+                            initial={{ opacity: 0, scale: 0.92, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.92, y: 20 }}
+                            transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            {/* Modal header */}
+                            <div className="modal-header">
+                                <div className="modal-title-group">
+                                    <Building2 size={20} className="modal-title-icon" />
+                                    <div>
+                                        <h2 className="modal-title">Select Companies</h2>
+                                        <p className="modal-subtitle">Choose which companies to scrape, or run all at once.</p>
+                                    </div>
+                                </div>
+                                <button className="btn-icon" onClick={() => setShowPicker(false)} aria-label="Close">
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* All companies chip */}
+                            <div className="company-picker-all">
+                                <button
+                                    className={`chip chip-all ${isAllSelected ? 'chip-active' : ''}`}
+                                    onClick={selectAll}
+                                    id="picker-all-btn"
+                                >
+                                    ✦ All companies
+                                </button>
+                            </div>
+
+                            {/* Company grid */}
+                            {companiesLoading ? (
+                                <div className="company-picker-grid">
+                                    {[...Array(6)].map((_, i) => (
+                                        <div key={i} className="skeleton" style={{ height: 52, borderRadius: 12 }} />
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="company-picker-grid">
+                                    {companies.map(c => {
+                                        const active = selectedSlugs.includes(c.slug)
+                                        return (
+                                            <button
+                                                key={c.slug}
+                                                id={`picker-${c.slug}`}
+                                                className={`company-chip ${active ? 'company-chip-active' : ''}`}
+                                                onClick={() => toggleSlug(c.slug)}
+                                            >
+                                                <span className="company-chip-name">{c.name}</span>
+                                                <span
+                                                    className="company-chip-badge"
+                                                    style={{ background: ATS_COLORS[c.ats] || '#6366f1' }}
+                                                >
+                                                    {c.ats}
+                                                </span>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            )}
+
+                            {/* Footer */}
+                            <div className="modal-footer">
+                                <span className="picker-selection-label">
+                                    {isAllSelected
+                                        ? `Running all ${companies.length} companies`
+                                        : `${selectedSlugs.length} of ${companies.length} selected`}
+                                </span>
+                                <div className="modal-footer-actions">
+                                    <button className="btn btn-ghost" onClick={() => setShowPicker(false)}>Cancel</button>
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={handleRunPipeline}
+                                        id="picker-run-btn"
+                                    >
+                                        <Play size={14} />
+                                        Run{isAllSelected ? ' All' : ` (${selectedSlugs.length})`}
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Stats */}
             {loading ? (
@@ -208,7 +346,7 @@ export default function Dashboard() {
                         <div className="lastrun-empty">
                             <AlertCircle size={28} className="text-muted" />
                             <p>No pipeline run yet.</p>
-                            <button className="btn btn-secondary" onClick={handleRunPipeline}>
+                            <button className="btn btn-secondary" onClick={openPicker}>
                                 <Play size={14} /> Run now
                             </button>
                         </div>

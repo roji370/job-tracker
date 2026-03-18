@@ -57,6 +57,9 @@ export const getJob = (id) => api.get(`/jobs/${id}`)
 export const deactivateJob = (id) => api.patch(`/jobs/${id}/deactivate`)
 
 // ─── Matches ─────────────────────────────────────────────────
+// Supported params: min_score, saved_only, applied_only,
+//                   experience_level (entry|mid|senior|lead|director),
+//                   location (partial, case-insensitive), skip, limit
 export const listMatches = (params = {}) => api.get('/matches/', { params })
 export const getMatchStats = () => api.get('/matches/stats')
 export const toggleSave = (id) => api.patch(`/matches/${id}/save`)
@@ -64,11 +67,18 @@ export const toggleApplied = (id) => api.patch(`/matches/${id}/apply`)
 
 // ─── Pipeline ────────────────────────────────────────────────
 // Fix #26: Use long timeout only for the synchronous pipeline run
-export const triggerPipeline = () =>
-    api.post('/pipeline/run/sync', null, { timeout: PIPELINE_TIMEOUT })
-export const triggerPipelineAsync = () => api.post('/pipeline/run')
+// companySlugs: string[] | null — pass null/undefined to run all companies
+export const triggerPipeline = (companySlugs = null) =>
+    api.post(
+        '/pipeline/run/sync',
+        companySlugs ? { companies: companySlugs } : null,
+        { timeout: PIPELINE_TIMEOUT }
+    )
+export const triggerPipelineAsync = (companySlugs = null) =>
+    api.post('/pipeline/run', companySlugs ? { companies: companySlugs } : null)
 export const getLastRun = () => api.get('/pipeline/last-run')
 export const getPipelineHistory = () => api.get('/pipeline/history')
+export const listCompanies = () => api.get('/pipeline/companies')
 
 // ─── Notifications ───────────────────────────────────────────
 export const getNotificationLogs = () => api.get('/notifications/logs')

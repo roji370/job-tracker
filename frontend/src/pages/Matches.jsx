@@ -1,88 +1,247 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, Filter, RefreshCw, Zap, Bookmark, CheckCircle } from 'lucide-react'
+import { Search, RefreshCw, Zap, MapPin, BarChart2, ChevronDown, X } from 'lucide-react'
 import JobCard from '../components/JobCard'
 import { listMatches } from '../utils/api'
 import './Matches.css'
 
-const FILTERS = [
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+const STATUS_FILTERS = [
     { id: 'all', label: 'All Matches' },
     { id: 'high', label: '≥70% Match' },
     { id: 'saved', label: 'Saved' },
     { id: 'applied', label: 'Applied' },
 ]
 
+const EXPERIENCE_OPTIONS = [
+    { value: '', label: 'Any Level' },
+    { value: 'entry', label: '🌱 Entry' },
+    { value: 'mid', label: '💼 Mid-level' },
+    { value: 'senior', label: '⭐ Senior' },
+    { value: 'lead', label: '🏗️ Lead / Staff' },
+    { value: 'director', label: '🎯 Director / Principal' },
+]
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export default function Matches() {
     const [matches, setMatches] = useState([])
     const [loading, setLoading] = useState(true)
+
+    // Search & filters (client-side search, server-side rest)
     const [search, setSearch] = useState('')
-    const [filter, setFilter] = useState('all')
+    const [statusFilter, setStatus] = useState('all')
+    const [expLevel, setExpLevel] = useState('')
+    const [locationQuery, setLocation] = useState('')
+    const [locationInput, setLocInput] = useState('')  // live input before debounce
+
+    // Unique locations extracted from current result set (for suggestions)
+    const [locationSuggestions, setLocationSuggestions] = useState([])
+    const [showLocSuggest, setShowLocSuggest] = useState(false)
 
     const load = useCallback(async () => {
         setLoading(true)
         try {
             const params = {}
-            if (filter === 'high') params.min_score = 70
-            if (filter === 'saved') params.saved_only = true
-            if (filter === 'applied') params.applied_only = true
+            if (statusFilter === 'high') params.min_score = 70
+            if (statusFilter === 'saved') params.saved_only = true
+            if (statusFilter === 'applied') params.applied_only = true
+            if (expLevel) params.experience_level = expLevel
+            if (locationQuery) params.location = locationQuery
             const res = await listMatches(params)
             setMatches(res.data)
+
+            // Build unique location set for suggestions
+            const locs = [...new Set(
+                res.data
+                    .map(m => m.job?.location)
+                    .filter(Boolean)
+                    .map(l => l.trim())
+                    .filter(l => l.toLowerCase() !== 'remote')
+            )].sort()
+            setLocationSuggestions(locs)
         } finally {
             setLoading(false)
         }
-    }, [filter])
+    }, [statusFilter, expLevel, locationQuery])
 
     useEffect(() => { load() }, [load])
 
-    const displayed = matches.filter((m) => {
+    // Client-side search (title / company) applied on top of server results
+    const displayed = matches.filter(m => {
         if (!search) return true
         const q = search.toLowerCase()
         return (
             m.job?.title?.toLowerCase().includes(q) ||
-            m.job?.company?.toLowerCase().includes(q) ||
-            m.job?.location?.toLowerCase().includes(q)
+            m.job?.company?.toLowerCase().includes(q)
         )
     })
 
+    const hasActiveFilters = statusFilter !== 'all' || expLevel || locationQuery
+
+    const clearAllFilters = () => {
+        setStatus('all')
+        setExpLevel('')
+        setLocation('')
+        setLocInput('')
+        setSearch('')
+    }
+
+    const applyLocation = (val) => {
+        setLocation(val)
+        setLocInput(val)
+        setShowLocSuggest(false)
+    }
+
     return (
         <div className="page">
-            <div className="page-header">
-                <h1>Job <span className="gradient-text">Matches</span></h1>
-                <p>AI-scored matches between your resume and scraped jobs</p>
+            <div className="page-header matches-page-header">
+                <div>
+                    <h1>Job <span className="gradient-text">Matches</span></h1>
+                    <p>AI-scored matches between your resume and scraped jobs</p>
+                </div>
+                <div className="matches-header-actions">
+                    {hasActiveFilters && (
+                        <motion.button
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="btn btn-ghost clear-filters-btn"
+                            onClick={clearAllFilters}
+                            id="clear-filters-btn"
+                        >
+                            <X size={13} /> Clear filters
+                        </motion.button>
+                    )}
+                    <button className="btn btn-ghost" onClick={load} id="matches-refresh-btn">
+                        <RefreshCw size={14} /> Refresh
+                    </button>
+                </div>
             </div>
 
-            {/* Toolbar */}
-            <div className="matches-toolbar">
+            {/* ── Filter row ───────────────────────────────────────────── */}
+            <div className="matches-filters">
+
+                {/* Search */}
                 <div className="search-box">
-                    <Search size={16} className="search-icon" />
+                    <Search size={15} className="search-icon" />
                     <input
                         id="matches-search"
                         type="text"
-                        placeholder="Search by title, company, location…"
+                        placeholder="Search title or company…"
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={e => setSearch(e.target.value)}
                     />
                 </div>
 
-                <div className="filter-tabs">
-                    {FILTERS.map((f) => (
+                {/* Status pill tabs */}
+                <div className="filter-tabs" role="group" aria-label="Status filter">
+                    {STATUS_FILTERS.map(f => (
                         <button
                             key={f.id}
                             id={`filter-${f.id}`}
-                            className={`filter-tab ${filter === f.id ? 'active' : ''}`}
-                            onClick={() => setFilter(f.id)}
+                            className={`filter-tab ${statusFilter === f.id ? 'active' : ''}`}
+                            onClick={() => setStatus(f.id)}
                         >
                             {f.label}
                         </button>
                     ))}
                 </div>
 
-                <button className="btn btn-ghost" onClick={load} id="matches-refresh-btn">
-                    <RefreshCw size={14} /> Refresh
-                </button>
+                {/* Experience level dropdown */}
+                <div className="select-wrapper" title="Filter by experience level">
+                    <BarChart2 size={14} className="select-icon" />
+                    <select
+                        id="exp-level-select"
+                        value={expLevel}
+                        onChange={e => setExpLevel(e.target.value)}
+                        className={`filter-select ${expLevel ? 'filter-select--active' : ''}`}
+                    >
+                        {EXPERIENCE_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                    </select>
+                    <ChevronDown size={13} className="select-chevron" />
+                </div>
+
+                {/* Location typeahead */}
+                <div className="location-filter-wrap">
+                    <div className="search-box location-box">
+                        <MapPin size={14} className="search-icon" />
+                        <input
+                            id="location-filter"
+                            type="text"
+                            placeholder="Filter by location…"
+                            value={locInput}
+                            onChange={e => {
+                                setLocInput(e.target.value)
+                                setShowLocSuggest(true)
+                            }}
+                            onBlur={() => setTimeout(() => setShowLocSuggest(false), 150)}
+                            onFocus={() => { if (locInput) setShowLocSuggest(true) }}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') applyLocation(locInput)
+                                if (e.key === 'Escape') { setShowLocSuggest(false); applyLocation('') }
+                            }}
+                            className={locationQuery ? 'filter-select--active' : ''}
+                        />
+                        {locInput && (
+                            <button
+                                className="loc-clear-btn"
+                                onMouseDown={() => applyLocation('')}
+                                aria-label="Clear location"
+                            >
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
+                    {/* Suggestions dropdown */}
+                    <AnimatePresence>
+                        {showLocSuggest && locationSuggestions.length > 0 && (
+                            <motion.ul
+                                className="loc-suggestions"
+                                initial={{ opacity: 0, y: -4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.12 }}
+                            >
+                                {locationSuggestions
+                                    .filter(l => !locInput || l.toLowerCase().includes(locInput.toLowerCase()))
+                                    .slice(0, 8)
+                                    .map(l => (
+                                        <li key={l}>
+                                            <button onMouseDown={() => applyLocation(l)} className="loc-suggestion-item">
+                                                <MapPin size={11} /> {l}
+                                            </button>
+                                        </li>
+                                    ))
+                                }
+                            </motion.ul>
+                        )}
+                    </AnimatePresence>
+                </div>
+
             </div>
 
-            {/* Results count */}
+            {/* ── Active filter tags ───────────────────────────────────── */}
+            {(expLevel || locationQuery) && (
+                <div className="active-filter-tags">
+                    {expLevel && (
+                        <span className="filter-tag">
+                            {EXPERIENCE_OPTIONS.find(o => o.value === expLevel)?.label}
+                            <button onClick={() => setExpLevel('')} aria-label="Remove"><X size={11} /></button>
+                        </span>
+                    )}
+                    {locationQuery && (
+                        <span className="filter-tag">
+                            <MapPin size={11} /> {locationQuery}
+                            <button onClick={() => { setLocation(''); setLocInput('') }} aria-label="Remove"><X size={11} /></button>
+                        </span>
+                    )}
+                </div>
+            )}
+
+            {/* ── Results count ────────────────────────────────────────── */}
             {!loading && (
                 <p className="matches-count">
                     {displayed.length} match{displayed.length !== 1 ? 'es' : ''}
@@ -90,7 +249,7 @@ export default function Matches() {
                 </p>
             )}
 
-            {/* Match list */}
+            {/* ── Match list ───────────────────────────────────────────── */}
             {loading ? (
                 <div className="section-grid">
                     {[...Array(4)].map((_, i) => (
@@ -100,12 +259,17 @@ export default function Matches() {
             ) : displayed.length === 0 ? (
                 <div className="card empty-state">
                     <Zap size={40} />
-                    <p>No matches found. Try running the pipeline or changing filters.</p>
+                    <p>No matches found. Try running the pipeline or adjusting filters.</p>
+                    {hasActiveFilters && (
+                        <button className="btn btn-secondary" onClick={clearAllFilters}>
+                            <X size={14} /> Clear all filters
+                        </button>
+                    )}
                 </div>
             ) : (
                 <AnimatePresence>
                     <div className="section-grid">
-                        {displayed.map((m) => (
+                        {displayed.map(m => (
                             <JobCard key={m.id} match={m} onUpdate={load} />
                         ))}
                     </div>

@@ -1,6 +1,12 @@
 """
 Resume parsing utility using PyMuPDF (fitz).
 Extracts text, skills, and structured content from PDF/DOCX resumes.
+
+Also exposes:
+  extract_experience_years(text) -> int | None
+  extract_location(text)         -> str | None
+  extract_roles(text)            -> list[str]
+  build_cv_data(resume)          -> dict   (used by the pipeline matcher)
 """
 import re
 import logging
@@ -115,3 +121,130 @@ def extract_phone(text: str) -> str | None:
         r"(\+?\d{1,3}[\s\-]?)?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4}", text
     )
     return match.group(0) if match else None
+
+
+# ── Structured extraction for the weighted matcher ────────────────────────────
+
+# Current year — computed once at import time so it stays correct year-over-year
+from datetime import date as _date
+_CURRENT_YEAR: int = _date.today().year
+
+# Role title keywords to scan for in resume text
+_ROLE_KEYWORDS: list[str] = [
+    "software engineer", "backend engineer", "frontend engineer",
+    "full stack engineer", "fullstack engineer", "data engineer",
+    "data scientist", "ml engineer", "devops engineer", "cloud engineer",
+    "mobile developer", "android developer", "ios developer",
+    "product manager", "engineering manager", "tech lead",
+    "software developer", "web developer", "site reliability engineer",
+    "security engineer", "qa engineer", "test engineer",
+    "solutions architect", "systems analyst", "database administrator",
+    "machine learning engineer", "ai engineer",
+]
+
+# Known locations for simple city/country detection
+_KNOWN_CITIES: list[str] = [
+    "bangalore", "bengaluru", "mumbai", "delhi", "hyderabad",
+    "chennai", "pune", "kolkata", "new york", "san francisco",
+    "london", "berlin", "toronto", "singapore", "sydney",
+]
+_COUNTRY_MAP: dict[str, str] = {
+    "india":         "India",
+    "united states": "US",
+    "united kingdom": "UK",
+    "canada":        "Canada",
+    "australia":     "Australia",
+    "germany":       "Germany",
+    "singapore":     "Singapore",
+}
+
+
+def extract_experience_years(text: str) -> int | None:
+    """
+    Infer total years of experience from resume text.
+
+    Strategies (tried in order):
+    1. Explicit pattern: "X years of experience" / "X+ yrs experience"
+    2. Year-range heuristic: earliest 4-digit year found → _CURRENT_YEAR
+
+    Returns int or None if no signal found.
+    """
+    # Strategy 1: explicit phrase
+    explicit_patterns = [
+        r"(\d+)\+?\s*years?\s+of\s+(?:professional\s+)?experience",
+        r"(\d+)\+?\s*yrs?\s+of\s+(?:professional\s+)?experience",
+        r"experience\s*(?:of|:)?\s+(\d+)\+?\s*years?",
+    ]
+    for pat in explicit_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+
+    # Strategy 2: earliest 20xx year in text → compute tenure
+    years_found = re.findall(r"\b(20\d{2})\b", text)
+    if len(years_found) >= 2:
+        years_int = sorted(int(y) for y in years_found)
+        computed  = _CURRENT_YEAR - years_int[0]
+        if 0 <= computed <= 40:
+            return computed
+
+    return None
+
+
+def extract_location(text: str) -> str | None:
+    """
+    Attempt to identify the candidate's location from resume text.
+
+    Checks known cities first, then falls back to country names.
+    Returns a human-readable location string or None.
+    """
+    text_lower = text.lower()
+
+    for city in _KNOWN_CITIES:
+        if city in text_lower:
+            return city.title()
+
+    for key, val in _COUNTRY_MAP.items():
+        if key in text_lower:
+            return val
+
+    return None
+
+
+def extract_roles(text: str) -> list[str]:
+    """
+    Extract job role titles from resume text using a keyword list.
+    Returns de-duplicated role strings in title-case, preserving order.
+    """
+    text_lower = text.lower()
+    found: list[str] = []
+    for role in _ROLE_KEYWORDS:
+        if re.search(r"\b" + re.escape(role) + r"\b", text_lower):
+            found.append(role.title())
+    # Preserve insertion order while deduplicating
+    return list(dict.fromkeys(found))
+
+
+def build_cv_data(resume) -> dict:
+    """
+    Assemble a structured cv_data dict from a Resume ORM object.
+
+    This is the primary input to match_job() / rank_jobs().
+
+    Returns:
+        {
+            "roles":              list[str],
+            "skills":             list[str],
+            "experience_years":   int | None,
+            "location":           str | None,
+            "preferred_location": str,        # defaults to "Remote"
+        }
+    """
+    text = resume.extracted_text or ""
+    return {
+        "roles":              extract_roles(text),
+        "skills":             resume.skills or [],
+        "experience_years":   extract_experience_years(text),
+        "location":           extract_location(text),
+        "preferred_location": "Remote",  # Conservative default; shown in UI later
+    }

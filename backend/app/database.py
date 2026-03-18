@@ -38,6 +38,30 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create all tables on startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """
+    Apply all pending Alembic migrations, then ensure any remaining tables exist.
+
+    Running `alembic upgrade head` programmatically at startup means every
+    Render deploy automatically migrates the database — no manual steps needed.
+    Falls back to create_all so local dev without an alembic_version table also works.
+    """
+    import logging
+    from alembic.config import Config
+    from alembic import command
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Resolve the alembic.ini path relative to this file
+        import pathlib
+        alembic_cfg_path = pathlib.Path(__file__).parent.parent / "alembic.ini"
+        alembic_cfg = Config(str(alembic_cfg_path))
+        # Always use the live DATABASE_URL — not whatever is in alembic.ini
+        alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+        command.upgrade(alembic_cfg, "head")
+        logger.info("✅ Alembic migrations applied (upgrade head).")
+    except Exception as e:
+        # Fall back to create_all so dev environments without migrations still work
+        logger.warning("⚠️  Alembic upgrade failed (%s) — falling back to create_all.", e)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)

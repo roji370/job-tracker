@@ -5,7 +5,7 @@ Fix #14: Sync endpoint restricted and documented as internal/testing only.
 Fix #17: Pydantic response_model on all endpoints.
 """
 import logging
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,37 +13,60 @@ from sqlalchemy import select
 from app.database import get_db, AsyncSessionLocal
 from app.services.pipeline import run_pipeline
 from app.models.pipeline_run import PipelineRun
-from app.schemas import PipelineRunOut
+from app.schemas import PipelineRunOut, PipelineRunRequest, CompanyOut
+from app.utils.company_sources import COMPANIES
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
+@router.get("/companies", response_model=List[CompanyOut])
+async def list_companies():
+    """
+    Return the list of all companies configured for job tracking.
+    Used by the frontend to populate the company-selector when triggering a pipeline run.
+    """
+    return COMPANIES
+
+
 @router.post("/run")
 async def trigger_pipeline(
-    background_tasks: BackgroundTasks,
+    body: Optional[PipelineRunRequest] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Manually trigger the full pipeline: Scrape → AI Match → Store → Notify.
     Runs in the background and returns immediately.
     Check /pipeline/last-run for results.
+
+    Optionally pass a list of company slugs in the request body to limit scraping
+    to specific companies. Omit (or pass null) to scrape all configured companies.
     """
-    background_tasks.add_task(_run_in_background)
+    company_slugs = body.companies if body else None
+    background_tasks.add_task(_run_in_background, company_slugs=company_slugs)
     return {
         "message": "Pipeline triggered in background. Check /pipeline/last-run for results.",
         "status": "running",
+        "companies": company_slugs,
     }
 
 
 @router.post("/run/sync")
-async def trigger_pipeline_sync(db: AsyncSession = Depends(get_db)):
+async def trigger_pipeline_sync(
+    body: Optional[PipelineRunRequest] = None,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Synchronously trigger the pipeline (waits for completion).
     ⚠️  WARNING: This can take 30–90+ seconds. Only use for local testing.
     In production prefer POST /pipeline/run (async background version).
+
+    Optionally pass a list of company slugs in the request body to limit scraping
+    to specific companies.
     """
-    result = await run_pipeline(db, triggered_by="api-sync")
+    company_slugs = body.companies if body else None
+    result = await run_pipeline(db, triggered_by="api-sync", company_slugs=company_slugs)
     return result
 
 
@@ -105,11 +128,15 @@ async def get_pipeline_history(
     ]
 
 
-async def _run_in_background():
+async def _run_in_background(company_slugs: list[str] | None = None):
     """Background task wrapper with its own DB session."""
     async with AsyncSessionLocal() as db:
         try:
-            result = await run_pipeline(db, triggered_by="api-background")
+            result = await run_pipeline(
+                db,
+                triggered_by="api-background",
+                company_slugs=company_slugs,
+            )
             logger.info("Background pipeline complete: %s", result)
         except Exception as e:
             logger.error("Background pipeline error: %s", e)

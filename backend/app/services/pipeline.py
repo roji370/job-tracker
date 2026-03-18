@@ -16,7 +16,8 @@ from app.models.resume import Resume
 from app.models.notification import NotificationLog
 from app.models.pipeline_run import PipelineRun
 from app.utils.scraper import scrape_amazon_jobs
-from app.utils.matcher import compute_similarity, generate_explanation
+from app.utils.matcher import match_job
+from app.utils.resume_parser import build_cv_data, extract_skills
 from app.utils.notifier import send_whatsapp, send_email, build_job_notification_message
 from app.config import get_settings
 
@@ -24,14 +25,22 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-async def run_pipeline(db: AsyncSession, triggered_by: str = "scheduler") -> dict:
+async def run_pipeline(
+    db: AsyncSession,
+    triggered_by: str = "scheduler",
+    company_slugs: list[str] | None = None,
+) -> dict:
     """
     Full pipeline:
-    1. Scrape jobs from Amazon
+    1. Scrape jobs from configured companies (or a subset if company_slugs provided)
     2. Load active resume
     3. Run AI matching
     4. Store new jobs + matches in DB
     5. Send notifications for high-scoring new matches
+
+    Args:
+        company_slugs: If provided, only scrape these company slugs.
+                       Pass None to scrape all companies.
 
     Returns a summary dict and persists a PipelineRun record.
     """
@@ -52,7 +61,7 @@ async def run_pipeline(db: AsyncSession, triggered_by: str = "scheduler") -> dic
     # Step 1: Scrape jobs
     raw_jobs = []
     try:
-        raw_jobs = await scrape_amazon_jobs(query="software engineer", limit=20)
+        raw_jobs = await scrape_amazon_jobs(company_slugs=company_slugs)
         run.jobs_scraped = len(raw_jobs)
         logger.info("Scraped %d jobs", len(raw_jobs))
     except Exception as e:
@@ -69,6 +78,16 @@ async def run_pipeline(db: AsyncSession, triggered_by: str = "scheduler") -> dic
         run.errors = errors
         await db.commit()
         return _run_summary(run)
+
+    # Build structured CV data once — used for all job comparisons this run
+    cv_data = build_cv_data(resume)
+    logger.info(
+        "CV data: roles=%s skills=%d exp_years=%s location=%s",
+        cv_data["roles"],
+        len(cv_data["skills"]),
+        cv_data["experience_years"],
+        cv_data["location"],
+    )
 
     # Step 3+4: Match and store
     new_matches: list[dict] = []
@@ -90,35 +109,51 @@ async def run_pipeline(db: AsyncSession, triggered_by: str = "scheduler") -> dic
             if existing.scalar_one_or_none():
                 continue
 
-            # Compute similarity in thread pool (blocking call)
-            job_text = " ".join(filter(None, [job.title, job.description, job.requirements]))
-            loop = asyncio.get_event_loop()
-            score = await loop.run_in_executor(
-                None, compute_similarity, resume.extracted_text or "", job_text
+            # Build job_data dict for the weighted matcher.
+            # Extract skills_required from the requirements text so
+            # calculate_skills_score() has an explicit list to compare against.
+            requirements_text = job.requirements or ""
+            description_text  = job.description  or ""
+            skills_required   = extract_skills(requirements_text + " " + description_text)
+
+            job_data = {
+                "title":            job.title,
+                "skills_required":  skills_required,
+                "experience_level": job.experience_level,
+                "location":         job.location,
+                "description":      description_text,
+            }
+
+            # Run weighted matching in a thread pool (CPU-bound but very fast)
+            loop   = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, match_job, cv_data, job_data
             )
-            explanation = generate_explanation(
-                resume.extracted_text or "",
-                {"title": job.title, "company": job.company},
-                score,
-            )
+
+            score           = result["final_score"]
+            breakdown       = result["breakdown"]
+            explanation_list = result["explanation"]
+            # Store explanation as a newline-joined string for Text column compat
+            explanation_str = "\n".join(explanation_list)
 
             match = JobMatch(
                 resume_id=resume.id,
                 job_id=job.id,
                 match_score=score,
-                explanation=explanation,
+                explanation=explanation_str,
+                score_breakdown=breakdown,
             )
             db.add(match)
             run.matches_created += 1
 
             if score >= settings.MATCH_THRESHOLD:
                 new_matches.append({
-                    "title": job.title,
-                    "company": job.company,
-                    "location": job.location,
-                    "url": job.url,
+                    "title":       job.title,
+                    "company":     job.company,
+                    "location":    job.location,
+                    "url":         job.url,
                     "match_score": score,
-                    "explanation": explanation,
+                    "explanation": explanation_str,
                 })
 
         except Exception as e:
@@ -188,6 +223,7 @@ async def _upsert_job(db: AsyncSession, job_data: dict) -> tuple[Job, bool]:
         job_id_external=job_data.get("job_id_external"),
         employment_type=job_data.get("employment_type"),
         posted_date=job_data.get("posted_date"),
+        experience_level=job_data.get("experience_level"),
         is_synthetic=job_data.get("is_synthetic", False),
     )
     db.add(job)

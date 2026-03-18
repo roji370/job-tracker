@@ -94,9 +94,65 @@
 }
 
 .job-card-explanation {
-    font-size: 0.825rem;
+    font-size: 0.8rem;
     color: var(--color-text-muted);
-    line-height: 1.55;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.job-card-explanation li::before {
+    content: '›  ';
+    color: var(--color-primary-light);
+    font-weight: 700;
+}
+
+/* ── Score breakdown mini-bars ─────────────────────────────── */
+.breakdown-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0.6rem 0.75rem;
+    background: var(--color-surface-2);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+}
+
+.breakdown-dim {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.breakdown-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.breakdown-val {
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.breakdown-bar-bg {
+    height: 4px;
+    background: var(--color-border);
+    border-radius: 99px;
+    overflow: hidden;
+}
+
+.breakdown-bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.5s ease;
 }
 
 .job-card-details {

@@ -22,6 +22,8 @@ class Job(Base):
     job_id_external: Mapped[str] = mapped_column(String(255), nullable=True, unique=True)
     employment_type: Mapped[str] = mapped_column(String(100), nullable=True)
     posted_date: Mapped[str] = mapped_column(String(100), nullable=True)
+    # Inferred from job title at scrape time: entry | mid | senior | lead | director
+    experience_level: Mapped[str] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # Fix #8: flag jobs whose descriptions were AI-generated (scraper fallback)
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -43,6 +45,7 @@ class Job(Base):
         Index("ix_jobs_is_active", "is_active"),
         Index("ix_jobs_job_id_external", "job_id_external"),
         Index("ix_jobs_source", "source"),
+        Index("ix_jobs_experience_level", "experience_level"),
     )
 
     def __repr__(self) -> str:

@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Float, Text, DateTime, ForeignKey, Boolean, Index
+from typing import Optional
+from sqlalchemy import Float, Text, DateTime, ForeignKey, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
 
 
@@ -20,6 +21,9 @@ class JobMatch(Base):
     )
     match_score: Mapped[float] = mapped_column(Float, nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=True)
+    # Stores per-dimension breakdown: {role, skills, experience, location, tech_stack}
+    # NULL for legacy rows (pre-migration) that haven't been re-matched yet.
+    score_breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, default=None)
     is_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_saved: Mapped[bool] = mapped_column(Boolean, default=False)
     is_applied: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -10,11 +10,24 @@ import { toggleSave, toggleApplied } from '../utils/api'
 import toast from 'react-hot-toast'
 import './JobCard.css'
 
+const BREAKDOWN_DIMS = [
+    { key: 'role', label: 'Role' },
+    { key: 'skills', label: 'Skills' },
+    { key: 'experience', label: 'Experience' },
+    { key: 'location', label: 'Location' },
+    { key: 'tech_stack', label: 'Tech Stack' },
+]
+
 export default function JobCard({ match, onUpdate }) {
     const [expanded, setExpanded] = useState(false)
     const [saving, setSaving] = useState(false)
     const [applying, setApplying] = useState(false)
-    const { job, match_score, explanation, is_saved, is_applied, id } = match
+    const { job, match_score, explanation, score_breakdown, is_saved, is_applied, id } = match
+
+    // Normalise explanation: API may return string (legacy) or string[]
+    const explanationLines = Array.isArray(explanation)
+        ? explanation
+        : (explanation ? [explanation] : [])
 
     const handleSave = async (e) => {
         e.stopPropagation()
@@ -83,8 +96,39 @@ export default function JobCard({ match, onUpdate }) {
                     </div>
                 </div>
 
-                {/* Explanation */}
-                <p className="job-card-explanation">{explanation}</p>
+                {/* Explanation bullets */}
+                {explanationLines.length > 0 && (
+                    <ul className="job-card-explanation">
+                        {explanationLines.map((line, i) => (
+                            <li key={i}>{line}</li>
+                        ))}
+                    </ul>
+                )}
+
+                {/* Score breakdown mini-bars (only when real data is present) */}
+                {score_breakdown && Object.keys(score_breakdown).length > 0 && (
+                    <div className="breakdown-grid">
+                        {BREAKDOWN_DIMS.map(({ key, label }) => (
+                            <div key={key} className="breakdown-dim">
+                                <div className="breakdown-label">
+                                    <span>{label}</span>
+                                    <span className="breakdown-val">
+                                        {Math.round(score_breakdown[key] ?? 0)}
+                                    </span>
+                                </div>
+                                <div className="breakdown-bar-bg">
+                                    <div
+                                        className="breakdown-bar-fill"
+                                        style={{
+                                            width: `${score_breakdown[key] ?? 0}%`,
+                                            background: scoreGradient(score_breakdown[key] ?? 0),
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Expandable description */}
                 <AnimatePresence>

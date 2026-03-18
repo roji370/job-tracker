@@ -56,12 +56,14 @@ export default function Matches() {
             if (expLevel) params.experience_level = expLevel
             if (locationQuery) params.location = locationQuery
             const res = await listMatches(params)
-            setMatches(res.data.items || [])
-            setTotalMatches(res.data.total || 0)
+            const isArray = Array.isArray(res.data)
+            setMatches(isArray ? res.data : (res.data.items || []))
+            setTotalMatches(isArray ? res.data.length : (res.data.total || 0))
 
             // Build unique location set for suggestions
+            const matchesArr = isArray ? res.data : (res.data.items || [])
             const locs = [...new Set(
-                (res.data.items || [])
+                matchesArr
                     .map(m => m.job?.location)
                     .filter(Boolean)
                     .map(l => l.trim())
@@ -272,7 +274,7 @@ export default function Matches() {
             ) : (
                 <>
                     <AnimatePresence>
-                        <div className="section-grid grid-2">
+                        <div className="section-grid">
                             {matches.map(m => (
                                 <JobCard key={m.id} match={m} onUpdate={load} />
                             ))}

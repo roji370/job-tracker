@@ -42,7 +42,7 @@ export default function Dashboard() {
                 getLastRun(),
             ])
             setStats(statsRes.data)
-            setTopMatches(matchesRes.data)
+            setTopMatches(Array.isArray(matchesRes.data) ? matchesRes.data : (matchesRes.data?.items || []))
             setLastRun(lastRunRes.data)
         } catch {
             // errors toasted by API interceptor

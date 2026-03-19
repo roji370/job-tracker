@@ -42,6 +42,11 @@ class JobOut(_OrmBase):
     created_at: datetime
 
 
+class JobPaginatedOut(BaseModel):
+    items: list[JobOut]
+    total: int
+
+
 class JobDeactivateOut(_OrmBase):
     message: str
     id: uuid.UUID

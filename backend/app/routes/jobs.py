@@ -9,17 +9,17 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 
 from app.database import get_db
 from app.models.job import Job
-from app.schemas import JobOut, JobDeactivateOut
+from app.schemas import JobOut, JobDeactivateOut, JobPaginatedOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-@router.get("/", response_model=List[JobOut])
+@router.get("/", response_model=JobPaginatedOut)
 async def list_jobs(
     source: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
@@ -29,14 +29,14 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     """List all scraped jobs with optional filtering."""
-    stmt = select(Job)
+    filters = []
     if active_only:
-        stmt = stmt.where(Job.is_active == True)
+        filters.append(Job.is_active == True)
     if source:
-        stmt = stmt.where(Job.source == source)
+        filters.append(Job.source == source)
     if search:
         term = f"%{search}%"
-        stmt = stmt.where(
+        filters.append(
             or_(
                 Job.title.ilike(term),
                 Job.company.ilike(term),
@@ -44,9 +44,27 @@ async def list_jobs(
                 Job.description.ilike(term),
             )
         )
+        
+    # Count query
+    count_stmt = select(func.count(Job.id))
+    for f in filters:
+        count_stmt = count_stmt.where(f)
+    
+    count_result = await db.execute(count_stmt)
+    total_jobs = count_result.scalar_one()
+
+    # Data query
+    stmt = select(Job)
+    for f in filters:
+        stmt = stmt.where(f)
+
     stmt = stmt.order_by(Job.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
-    return result.scalars().all()
+    
+    return {
+        "items": result.scalars().all(),
+        "total": total_jobs
+    }
 
 
 @router.get("/{job_id}", response_model=JobOut)
